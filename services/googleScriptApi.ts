@@ -1,6 +1,6 @@
 import { Notification, NotificationType } from '../types';
 
-// Default URL to ensure connection works across devices and refreshes immediately
+// The specific Web App URL provided for this project
 const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwkhn-4_SKTHvVFV-JDYgcQVFvgh7-bwErxZSu_MHPiQ2bh8s80WXPHGiyPOxY6GR8/exec';
 
 export const saveScriptUrl = (url: string) => {
@@ -9,7 +9,7 @@ export const saveScriptUrl = (url: string) => {
 
 export const getScriptUrl = () => {
   const stored = localStorage.getItem('wardAlert_scriptUrl');
-  // Use stored URL if available, otherwise fall back to the default hardcoded URL
+  // Always fallback to the hardcoded URL if local storage is empty
   return (stored && stored.trim() !== '') ? stored : DEFAULT_SCRIPT_URL;
 };
 
@@ -37,7 +37,7 @@ const sendToGas = async (payload: any) => {
     }
   } catch (error) {
     console.error('Error sending to GAS:', error);
-    throw error;
+    if (isRead) throw error; // Rethrow for reads so UI knows it failed
   }
 };
 
@@ -46,8 +46,6 @@ export const testConnection = async () => {
   if (!url) return false;
   
   try {
-     // Use no-cors for simple ping to avoid CORS issues on simple checks if needed, 
-     // but since we have a specific URL, we can try standard fetch first.
      await fetch(`${url}?action=test`, { mode: 'no-cors' });
      return true;
   } catch(e) {
@@ -73,7 +71,7 @@ export const seedDatabase = async () => {
   try {
     await sendToGas({ action: 'seed' });
   } catch(e) {
-    console.error("Seed failed (likely CORS on response, but action executed)", e);
+    console.error("Seed failed", e);
   }
 };
 
@@ -82,6 +80,7 @@ export const fetchInitialData = async () => {
   if (!url) return null;
 
   try {
+    console.log('Fetching data from:', url);
     const result = await sendToGas({ action: 'read_all' });
     if (result && result.status === 'success') {
       return result.data;
@@ -99,27 +98,23 @@ export type SyncOperation = 'create' | 'update' | 'delete';
 export const syncToSheet = async (sheetName: string, operation: SyncOperation, data: any) => {
   const url = getScriptUrl();
   
-  // Gracefully handle missing URL by logging a warning instead of throwing error
   if (!url) {
-    console.log(`[Local Mode] Sync to '${sheetName}' skipped (No URL configured).`);
+    console.warn(`[Local Mode] Sync to '${sheetName}' skipped (No URL configured).`);
     return;
   }
 
   try {
+    console.log(`Syncing to ${sheetName} [${operation}]...`);
     await sendToGas({
       action: 'sync',
       sheet: sheetName,
       operation: operation,
       data: data
     });
-    console.log(`Synced to ${sheetName} [${operation}]`);
+    console.log(`Sync success: ${sheetName}`);
   } catch (e) {
-    console.error('Failed to sync data', e);
+    console.error(`Failed to sync data to ${sheetName}`, e);
   }
-};
-
-export const saveDataToSheet = async (sheetName: string, data: any) => {
-   console.warn('saveDataToSheet is deprecated, use syncToSheet');
 };
 
 // --- LINE Alert ---
@@ -146,6 +141,6 @@ export const sendLineAlertToScript = async (notification: Notification) => {
       payload: linePayload
     });
   } catch (e) {
-    // console.error('Failed to send LINE', e);
+    console.error('Failed to send LINE', e);
   }
 };

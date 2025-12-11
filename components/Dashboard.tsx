@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Bed, IVFluid, HighRiskMed, Notification, BedStatus } from '../types';
 import BedCard from './BedCard';
-import { UserPlus, Trash2, Droplet, Pill, RefreshCw, Activity, Plus, Settings, Save, X } from 'lucide-react';
+import { UserPlus, Trash2, Droplet, Pill, RefreshCw, Activity, Plus, Settings, Save, X, Cloud } from 'lucide-react';
 import { Language, translations } from '../utils/translations';
 
 interface DashboardProps {
@@ -129,9 +129,18 @@ const Dashboard: React.FC<DashboardProps> = ({
             <p className="text-xs text-slate-500 font-medium ml-1 mt-1 opacity-80">Ward Monitoring System</p>
         </div>
         
-        <div className="flex items-center gap-2 text-xs font-bold text-emerald-600 bg-emerald-50/80 px-4 py-2 rounded-full border border-emerald-100 shadow-sm">
-            <RefreshCw size={14} className={`text-emerald-500 ${isLoading ? 'animate-spin' : ''}`} />
-            <span>{isLoading ? t.loadingData : t.liveUpdates}</span>
+        <div className={`flex items-center gap-2 text-xs font-bold px-4 py-2 rounded-full border shadow-sm transition-all duration-300 ${isLoading ? 'bg-sky-50 text-sky-600 border-sky-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>
+            {isLoading ? (
+               <>
+                 <RefreshCw size={14} className="animate-spin" />
+                 <span>Saving...</span>
+               </>
+            ) : (
+               <>
+                 <Cloud size={14} />
+                 <span>{t.liveUpdates}</span>
+               </>
+            )}
         </div>
       </header>
 

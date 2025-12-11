@@ -3,19 +3,19 @@ import Dashboard from './components/Dashboard';
 import NotificationPage from './components/NotificationPage';
 import SettingsModal from './components/SettingsModal';
 import { Bed, IVFluid, HighRiskMed, Notification, BedStatus, NotificationStatus } from './types';
-// import { mockDB } from './services/mockDatabase'; // REMOVED
 import { runAlertScanner } from './services/alertLogic';
 import { sendLineAlertToScript, syncToSheet, fetchInitialData, getScriptUrl } from './services/googleScriptApi';
 import { LayoutDashboard, Bell, Globe, Settings } from 'lucide-react';
 import { Language, translations } from './utils/translations';
 
 const App: React.FC = () => {
-  // Global Application State (Start empty)
+  // Global Application State
   const [beds, setBeds] = useState<Bed[]>([]);
   const [ivs, setIvs] = useState<IVFluid[]>([]);
   const [meds, setMeds] = useState<HighRiskMed[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false); // New state for saving indicator
   
   // Settings State
   const [lang, setLang] = useState<Language>('th');
@@ -55,15 +55,15 @@ const App: React.FC = () => {
       if (newAlerts.length > 0) {
         setNotifications(prev => [...prev, ...newAlerts]);
         
+        // Sync alerts to sheet
         newAlerts.forEach(alert => {
            sendLineAlertToScript(alert);
-           // Also save notification to sheet
            syncToSheet('Notifications', 'create', alert);
         });
       }
     };
 
-    if (beds.length > 0) { // Only run if we have data
+    if (beds.length > 0) { 
        runCheck();
        const interval = setInterval(runCheck, 60000);
        return () => clearInterval(interval);
@@ -72,45 +72,57 @@ const App: React.FC = () => {
 
 
   // --- Event Handlers & Sheet Sync ---
+  // Helper to wrap sync operations with loading state
+  const performSync = async (action: () => Promise<void> | void) => {
+    setIsSyncing(true);
+    try {
+      await action();
+    } finally {
+      setTimeout(() => setIsSyncing(false), 800); // Keep showing for a moment
+    }
+  };
 
   const handleAdmit = (bedId: number, hn: string) => {
-    setBeds(prev => {
-      const updated = prev.map(b => 
-        b.id === bedId ? { ...b, status: BedStatus.OCCUPIED, current_hn: hn } : b
-      );
-      // Sync: Update Bed Status
-      const updatedBed = updated.find(b => b.id === bedId);
+    const updatedBeds = beds.map(b => 
+      b.id === bedId ? { ...b, status: BedStatus.OCCUPIED, current_hn: hn } : b
+    );
+    setBeds(updatedBeds);
+
+    performSync(() => {
+      const updatedBed = updatedBeds.find(b => b.id === bedId);
       if (updatedBed) syncToSheet('Beds', 'update', updatedBed);
-      return updated;
     });
   };
 
   const handleDischarge = (bedId: number) => {
-    // 1. Update Bed Status
-    setBeds(prev => prev.map(b => 
+    // 1. Update Bed Status Locally
+    const updatedBeds = beds.map(b => 
       b.id === bedId ? { ...b, status: BedStatus.VACANT, current_hn: null } : b
-    ));
-    // Sync: Update Bed to Vacant
-    syncToSheet('Beds', 'update', { id: bedId, status: 'vacant', current_hn: '' });
+    );
+    setBeds(updatedBeds);
 
-    // 2. Soft Delete (Deactivate) IVs linked to this bed
-    setIvs(prev => {
-      const updatedIVs = prev.map(iv => iv.bed_id === bedId ? { ...iv, is_active: false } : iv);
-      // Find modified items and sync
-      updatedIVs.filter(iv => iv.bed_id === bedId && !iv.is_active).forEach(iv => {
+    // 2. Soft Delete IVs Locally
+    const updatedIvs = ivs.map(iv => iv.bed_id === bedId ? { ...iv, is_active: false } : iv);
+    setIvs(updatedIvs);
+
+    // 3. Soft Delete Meds Locally
+    const updatedMeds = meds.map(m => m.bed_id === bedId ? { ...m, is_active: false } : m);
+    setMeds(updatedMeds);
+
+    // 4. Perform Syncs
+    performSync(() => {
+      // Sync Bed
+      syncToSheet('Beds', 'update', { id: bedId, status: 'vacant', current_hn: '' });
+      
+      // Sync IVs
+      updatedIvs.filter(iv => iv.bed_id === bedId && !iv.is_active && ivs.find(old => old.id === iv.id)?.is_active).forEach(iv => {
         syncToSheet('IVs', 'update', { id: iv.id, is_active: false });
       });
-      return updatedIVs;
-    });
 
-    // 3. Soft Delete (Deactivate) Meds linked to this bed
-    setMeds(prev => {
-      const updatedMeds = prev.map(m => m.bed_id === bedId ? { ...m, is_active: false } : m);
-      // Find modified items and sync
-      updatedMeds.filter(m => m.bed_id === bedId && !m.is_active).forEach(m => {
+      // Sync Meds
+      updatedMeds.filter(m => m.bed_id === bedId && !m.is_active && meds.find(old => old.id === m.id)?.is_active).forEach(m => {
         syncToSheet('Meds', 'update', { id: m.id, is_active: false });
       });
-      return updatedMeds;
     });
   };
 
@@ -126,9 +138,9 @@ const App: React.FC = () => {
       fluid_type: type,
       is_active: true
     };
+    
     setIvs(prev => [...prev, newIV]);
-    // Sync: Create new IV record
-    syncToSheet('IVs', 'create', newIV);
+    performSync(() => syncToSheet('IVs', 'create', newIV));
   };
 
   const handleAddMed = (bedId: number, hn: string, name: string, code: string, expireDate: string) => {
@@ -142,9 +154,9 @@ const App: React.FC = () => {
       med_name: name,
       is_active: true
     };
+    
     setMeds(prev => [...prev, newMed]);
-    // Sync: Create new Med record
-    syncToSheet('Meds', 'create', newMed);
+    performSync(() => syncToSheet('Meds', 'create', newMed));
   };
   
   // --- Bed CRUD ---
@@ -158,18 +170,19 @@ const App: React.FC = () => {
           status: BedStatus.VACANT,
           current_hn: null
       };
+      
       setBeds(prev => [...prev, newBed]);
-      syncToSheet('Beds', 'create', newBed);
+      performSync(() => syncToSheet('Beds', 'create', newBed));
   };
   
   const handleUpdateBed = (bedId: number, newNumber: number) => {
       setBeds(prev => prev.map(b => b.id === bedId ? { ...b, bed_number: newNumber } : b));
-      syncToSheet('Beds', 'update', { id: bedId, bed_number: newNumber });
+      performSync(() => syncToSheet('Beds', 'update', { id: bedId, bed_number: newNumber }));
   };
   
   const handleDeleteBed = (bedId: number) => {
       setBeds(prev => prev.filter(b => b.id !== bedId));
-      syncToSheet('Beds', 'delete', { id: bedId });
+      performSync(() => syncToSheet('Beds', 'delete', { id: bedId }));
   };
 
   const handleMarkAsRead = (id: number) => {
@@ -228,7 +241,7 @@ const App: React.FC = () => {
             onAddBed={handleAddBed}
             onUpdateBed={handleUpdateBed}
             onDeleteBed={handleDeleteBed}
-            isLoading={isLoading}
+            isLoading={isLoading || isSyncing}
             lang={lang}
           />
         ) : (
