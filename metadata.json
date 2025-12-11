@@ -1,0 +1,5 @@
+{
+  "name": "WardAlert",
+  "description": "Hospital ward management system with automated IV and high-risk medication alerts.",
+  "requestFramePermissions": []
+}
