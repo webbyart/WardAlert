@@ -1,3 +1,4 @@
+
 export enum BedStatus {
   VACANT = 'vacant',
   OCCUPIED = 'occupied',
@@ -69,6 +70,14 @@ export interface Notification {
   };
   status: NotificationStatus;
   created_at: string;
+}
+
+export interface LogEntry {
+  id: number;
+  action_type: 'ADMIT' | 'DISCHARGE' | 'ADD_IV' | 'ADD_MED' | 'UPDATE_BED' | 'DELETE_BED' | 'ADD_BED';
+  details: string;
+  timestamp: string; // ISO String
+  performer?: string;
 }
 
 // For UI Forms

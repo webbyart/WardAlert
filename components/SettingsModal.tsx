@@ -74,7 +74,8 @@ function readAllTables() {
     beds: readSheet('Beds'),
     ivs: readSheet('IVs'),
     meds: readSheet('Meds'),
-    notifications: readSheet('Notifications')
+    notifications: readSheet('Notifications'),
+    logs: readSheet('Logs') // Added Logs
   };
 }
 
@@ -102,7 +103,15 @@ function readSheet(name) {
 function handleSync(sheetName, operation, data) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(sheetName);
-  if (!sheet) return;
+  if (!sheet) {
+     // Auto-create if missing (failsafe)
+     if (sheetName === 'Logs') {
+        sheet = ss.insertSheet('Logs');
+        sheet.appendRow(['id', 'action_type', 'details', 'timestamp']);
+     } else {
+        return;
+     }
+  }
 
   if (sheet.getLastRow() === 0) { const keys = Object.keys(data); sheet.appendRow(keys); }
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
@@ -134,7 +143,8 @@ function setupDatabase() {
     'Beds': ['id', 'bed_number', 'status', 'current_hn'],
     'IVs': ['id', 'hn', 'bed_id', 'started_at', 'due_at', 'fluid_type', 'is_active'],
     'Meds': ['id', 'hn', 'bed_id', 'started_at', 'expire_at', 'med_code', 'med_name', 'is_active'],
-    'Notifications': ['id', 'type', 'hn', 'bed_id', 'status', 'created_at', 'message']
+    'Notifications': ['id', 'type', 'hn', 'bed_id', 'status', 'created_at', 'message'],
+    'Logs': ['id', 'action_type', 'details', 'timestamp'] // Added Logs Schema
   };
   Object.keys(schemas).forEach(name => {
     let sheet = ss.getSheetByName(name);
@@ -293,6 +303,16 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, lang }) 
                 <h4 className="font-bold text-sky-900 text-sm mb-1">Secure Connection Active</h4>
                 <p className="text-xs text-sky-700 leading-relaxed">
                    The system is permanently connected to the designated Google Sheet. Data is synchronized automatically.
+                </p>
+             </div>
+          </div>
+          
+          <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl flex items-start gap-3">
+             <AlertCircle className="text-amber-500 shrink-0 mt-0.5" size={20} />
+             <div>
+                <h4 className="font-bold text-amber-900 text-sm mb-1">Important Update</h4>
+                <p className="text-xs text-amber-800 leading-relaxed">
+                   For the "History Log" feature to work, you must update your Google Apps Script code with the new version below (it adds a "Logs" table).
                 </p>
              </div>
           </div>

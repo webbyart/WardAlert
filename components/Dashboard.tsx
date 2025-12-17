@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
-import { Bed, IVFluid, HighRiskMed, Notification, BedStatus } from '../types';
+import { Bed, IVFluid, HighRiskMed, Notification, BedStatus, LogEntry } from '../types';
 import BedCard from './BedCard';
+import HistoryModal from './HistoryModal';
 import { UserPlus, Trash2, Droplet, Pill, RefreshCw, Activity, Plus, Settings, Save, X, Cloud, Clock, History } from 'lucide-react';
 import { Language, translations } from '../utils/translations';
 
@@ -10,6 +11,7 @@ interface DashboardProps {
   ivs: IVFluid[];
   meds: HighRiskMed[];
   notifications: Notification[];
+  logs?: LogEntry[]; // New Prop
   lang: Language;
   onAdmit: (bedId: number, hn: string) => void;
   onDischarge: (bedId: number) => void;
@@ -20,12 +22,11 @@ interface DashboardProps {
   onDeleteBed: (bedId: number) => void;
   isLoading: boolean;
   lastUpdated: Date | null;
-  // New prop to trigger reload from App
   onRefresh?: () => void;
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ 
-  beds, ivs, meds, notifications, lang, isLoading, lastUpdated,
+  beds, ivs, meds, notifications, logs = [], lang, isLoading, lastUpdated,
   onAdmit, onDischarge, onAddIV, onAddMed,
   onAddBed, onUpdateBed, onDeleteBed, onRefresh
 }) => {
@@ -34,6 +35,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   // UI State for Modal only
   const [selectedBed, setSelectedBed] = useState<Bed | null>(null);
   const [showModal, setShowModal] = useState(false);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [activeTab, setActiveTab] = useState<'info' | 'iv' | 'med' | 'history' | 'settings'>('info');
 
   // Form States
@@ -144,6 +146,14 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-transparent">
+      {/* Global History Modal */}
+      <HistoryModal 
+        isOpen={showHistoryModal} 
+        onClose={() => setShowHistoryModal(false)}
+        logs={logs}
+        lang={lang}
+      />
+
       {/* Header */}
       <header className="h-20 bg-white/40 backdrop-blur-md border-b border-white/50 flex items-center justify-between px-6 shadow-sm sticky top-0 z-10 transition-all">
         <div className="flex flex-col">
@@ -157,25 +167,36 @@ const Dashboard: React.FC<DashboardProps> = ({
         </div>
         
         <div className="flex flex-col items-end gap-1">
-          {/* Manual Refresh Button */}
-          <button 
-             onClick={onRefresh}
-             disabled={isLoading}
-             className={`flex items-center gap-2 text-xs font-bold px-4 py-2 rounded-full border shadow-sm transition-all duration-300 
-             ${isLoading ? 'bg-sky-50 text-sky-600 border-sky-100 cursor-not-allowed' : 'bg-emerald-50 text-emerald-600 border-emerald-100 hover:bg-emerald-100 cursor-pointer hover:shadow-md'}`}
-          >
-              {isLoading ? (
-                 <>
-                   <RefreshCw size={14} className="animate-spin" />
-                   <span>Syncing...</span>
-                 </>
-              ) : (
-                 <>
-                   <Cloud size={14} />
-                   <span>{t.liveUpdates}</span>
-                 </>
-              )}
-          </button>
+          <div className="flex items-center gap-2">
+              {/* History Log Button */}
+              <button 
+                onClick={() => setShowHistoryModal(true)}
+                className="flex items-center gap-2 text-xs font-bold px-3 py-2 rounded-full border border-indigo-100 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-all shadow-sm hover:shadow-md"
+              >
+                  <History size={14} />
+                  <span className="hidden sm:inline">{lang === 'th' ? 'ประวัติ' : 'History'}</span>
+              </button>
+
+              {/* Manual Refresh Button */}
+              <button 
+                onClick={onRefresh}
+                disabled={isLoading}
+                className={`flex items-center gap-2 text-xs font-bold px-4 py-2 rounded-full border shadow-sm transition-all duration-300 
+                ${isLoading ? 'bg-sky-50 text-sky-600 border-sky-100 cursor-not-allowed' : 'bg-emerald-50 text-emerald-600 border-emerald-100 hover:bg-emerald-100 cursor-pointer hover:shadow-md'}`}
+              >
+                  {isLoading ? (
+                    <>
+                      <RefreshCw size={14} className="animate-spin" />
+                      <span>Syncing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Cloud size={14} />
+                      <span>{t.liveUpdates}</span>
+                    </>
+                  )}
+              </button>
+          </div>
           
           {lastUpdated && (
             <span className="text-[10px] text-slate-400 font-mono font-medium tracking-tight mr-1">
