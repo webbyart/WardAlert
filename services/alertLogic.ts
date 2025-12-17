@@ -32,7 +32,7 @@ export const shouldTriggerMedAlert = (med: HighRiskMed, now: Date): boolean => {
 };
 
 /**
- * Generates the Thai message for IV alerts
+ * Generates the Thai message for IV alerts (DUE)
  */
 export const generateIVMessage = (hn: string, bedNumber: number, fluidType: string, startDate: Date, dueDate: Date): string => {
   const dStart = startDate.toLocaleDateString('th-TH');
@@ -40,11 +40,11 @@ export const generateIVMessage = (hn: string, bedNumber: number, fluidType: stri
   const dDue = dueDate.toLocaleDateString('th-TH');
   const tDue = dueDate.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
   
-  return `HN ${hn} (เตียง ${bedNumber}): สารน้ำ ${fluidType}\nเริ่ม: ${dStart} ${tStart}\nครบกำหนด: ${dDue} ${tDue}\nกรุณาตรวจสอบ`;
+  return `เตือน: HN ${hn} ที่เตียง ${bedNumber} — สารน้ำ (${fluidType}) จะครบกำหนดในวันที่ ${dDue} เวลา ${tDue} กรุณาดำเนินการเก็บหรือเปลี่ยนสารน้ำ`;
 };
 
 /**
- * Generates the Thai message for Medication alerts
+ * Generates the Thai message for Medication alerts (EXPIRE)
  */
 export const generateMedMessage = (hn: string, bedNumber: number, medName: string, startDate: Date, expireDate: Date): string => {
   const dStart = startDate.toLocaleDateString('th-TH');
@@ -52,8 +52,29 @@ export const generateMedMessage = (hn: string, bedNumber: number, medName: strin
   const dExp = expireDate.toLocaleDateString('th-TH');
   const tExp = expireDate.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
 
-  return `HN ${hn} (เตียง ${bedNumber}): ยา ${medName}\nเริ่ม: ${dStart} ${tStart}\nหมดฤทธิ์: ${dExp} ${tExp}\nกรุณาตรวจสอบ`;
+  return `เตือนยาที่มีความเสี่ยงสูง: HN ${hn} ที่เตียง ${bedNumber} — ยา ${medName} จะหมดฤทธิ์ในวันที่ ${dExp} เวลา ${tExp} กรุณาตรวจสอบ`;
 };
+
+// --- NEW: Action Messages (For immediate logs) ---
+
+export const generateIVStartMessage = (hn: string, bedNumber: number, fluidType: string, startTime: string): string => {
+    const dStart = new Date(startTime).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' });
+    return `เริ่มให้สารน้ำ: ${fluidType}\nผู้ป่วย HN ${hn} (เตียง ${bedNumber})\nเริ่มเมื่อ: ${dStart}`;
+};
+
+export const generateMedStartMessage = (hn: string, bedNumber: number, medName: string, startTime: string): string => {
+    const dStart = new Date(startTime).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' });
+    return `เริ่มให้ยาความเสี่ยงสูง: ${medName}\nผู้ป่วย HN ${hn} (เตียง ${bedNumber})\nเริ่มเมื่อ: ${dStart}`;
+};
+
+export const generateAdmitMessage = (hn: string, bedNumber: number): string => {
+    return `รับผู้ป่วยใหม่ (Admit): HN ${hn} เข้าที่เตียง ${bedNumber}`;
+};
+
+export const generateDischargeMessage = (hn: string, bedNumber: number): string => {
+    return `จำหน่ายผู้ป่วย (Discharge): HN ${hn} ออกจากเตียง ${bedNumber}`;
+};
+
 
 /**
  * Core Logic to scan records and return new notifications

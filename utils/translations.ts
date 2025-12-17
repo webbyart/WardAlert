@@ -6,6 +6,7 @@ export const translations = {
     appTitle: 'WardAlert',
     home: 'หน้าหลัก',
     notifications: 'แจ้งเตือน',
+    calendar: 'ตารางงาน',
     dashboardTitle: 'ภาพรวมหอผู้ป่วย',
     liveUpdates: 'อัปเดตเรียลไทม์',
     lastUpdated: 'อัปเดตล่าสุด',
@@ -64,12 +65,19 @@ export const translations = {
     cancel: 'ยกเลิก',
     startedAt: 'เริ่ม:',
     dueAt: 'ครบกำหนด:',
-    expiredAt: 'หมดอายุ:'
+    expiredAt: 'หมดอายุ:',
+    calendarTitle: 'ตารางการรักษา',
+    noEvents: 'ไม่มีรายการรักษาในวันนี้',
+    ivStart: 'เริ่มสารน้ำ',
+    ivDue: 'สารน้ำหมด',
+    medStart: 'เริ่มยา',
+    medExpire: 'ยาหมดฤทธิ์'
   },
   en: {
     appTitle: 'WardAlert',
     home: 'Home',
     notifications: 'Notifications',
+    calendar: 'Schedule',
     dashboardTitle: 'Ward Dashboard',
     liveUpdates: 'Live Updates',
     lastUpdated: 'Last Updated',
@@ -128,6 +136,12 @@ export const translations = {
     cancel: 'Cancel',
     startedAt: 'Start:',
     dueAt: 'Due:',
-    expiredAt: 'Expires:'
+    expiredAt: 'Expires:',
+    calendarTitle: 'Treatment Schedule',
+    noEvents: 'No treatments scheduled for this day',
+    ivStart: 'Start IV',
+    ivDue: 'IV Due',
+    medStart: 'Start Med',
+    medExpire: 'Med Expire'
   }
 };

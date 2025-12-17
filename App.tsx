@@ -3,10 +3,11 @@ import React, { useState, useEffect } from 'react';
 import Dashboard from './components/Dashboard';
 import NotificationPage from './components/NotificationPage';
 import SettingsModal from './components/SettingsModal';
-import { Bed, IVFluid, HighRiskMed, Notification, BedStatus, NotificationStatus } from './types';
-import { runAlertScanner } from './services/alertLogic';
+import CalendarPage from './components/CalendarPage';
+import { Bed, IVFluid, HighRiskMed, Notification, BedStatus, NotificationStatus, NotificationType } from './types';
+import { runAlertScanner, generateIVStartMessage, generateMedStartMessage, generateAdmitMessage, generateDischargeMessage } from './services/alertLogic';
 import { sendLineAlertToScript, syncToSheet, fetchInitialData, getScriptUrl } from './services/googleScriptApi';
-import { LayoutDashboard, Bell, Globe, Settings } from 'lucide-react';
+import { LayoutDashboard, Bell, Globe, Settings, Calendar } from 'lucide-react';
 import { Language, translations } from './utils/translations';
 
 const App: React.FC = () => {
@@ -26,9 +27,13 @@ const App: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   
   // Navigation State
-  const [currentView, setCurrentView] = useState<'dashboard' | 'notifications'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'notifications' | 'calendar'>('dashboard');
 
   const t = translations[lang];
+
+  // Helper for unique ID
+  const getNextId = () => Date.now();
+  const getNextNotifId = () => notifications.length > 0 ? Math.max(...notifications.map(n => n.id)) + 1 : 1;
 
   // Load Data from GAS on Mount
   useEffect(() => {
@@ -62,7 +67,7 @@ const App: React.FC = () => {
         
         // Sync alerts to sheet
         newAlerts.forEach(alert => {
-           sendLineAlertToScript(alert);
+           sendLineAlertToScript(alert); // Uses default Alert Colors (Red/Blue)
            syncToSheet('Notifications', 'create', alert);
         });
       }
@@ -77,7 +82,6 @@ const App: React.FC = () => {
 
 
   // --- Event Handlers & Sheet Sync ---
-  // Helper to wrap sync operations with loading state
   const performSync = async (action: () => Promise<void> | void) => {
     setIsSyncing(true);
     try {
@@ -86,61 +90,107 @@ const App: React.FC = () => {
       setTimeout(() => {
         setIsSyncing(false);
         setLastUpdated(new Date());
-      }, 800); // Keep showing for a moment
+      }, 800);
     }
   };
 
   const handleAdmit = (bedId: number, hn: string) => {
+    const bed = beds.find(b => b.id === bedId);
     const updatedBeds = beds.map(b => 
       b.id === bedId ? { ...b, status: BedStatus.OCCUPIED, current_hn: hn } : b
     );
     setBeds(updatedBeds);
 
+    // Create Notification & Line Alert
+    const notif: Notification = {
+        id: getNextNotifId(),
+        type: NotificationType.IV_ALERT, // Reusing Type for generic msg
+        hn: hn,
+        bed_id: bedId,
+        scheduled_at: new Date().toISOString(),
+        status: NotificationStatus.PENDING,
+        created_at: new Date().toISOString(),
+        payload: {
+            message: generateAdmitMessage(hn, bed ? bed.bed_number : 0),
+            target_date: new Date().toISOString()
+        }
+    };
+    setNotifications(prev => [notif, ...prev]);
+
     performSync(() => {
       const updatedBed = updatedBeds.find(b => b.id === bedId);
       if (updatedBed) syncToSheet('Beds', 'update', updatedBed);
+      
+      // Sync Notification
+      syncToSheet('Notifications', 'create', notif);
+      sendLineAlertToScript(notif, { 
+          customTitle: 'Admit Patient', 
+          customColor: '#10b981', // Emerald
+          customDetail: 'Status: Admitted' 
+      });
     });
   };
 
   const handleDischarge = (bedId: number) => {
-    // 1. Update Bed Status Locally
+    const bed = beds.find(b => b.id === bedId);
+    const oldHn = bed?.current_hn || 'Unknown';
+
+    // 1. Update Bed
     const updatedBeds = beds.map(b => 
       b.id === bedId ? { ...b, status: BedStatus.VACANT, current_hn: null } : b
     );
     setBeds(updatedBeds);
 
-    // 2. Soft Delete IVs Locally
+    // 2. Soft Delete IVs
     const updatedIvs = ivs.map(iv => iv.bed_id === bedId ? { ...iv, is_active: false } : iv);
     setIvs(updatedIvs);
 
-    // 3. Soft Delete Meds Locally
+    // 3. Soft Delete Meds
     const updatedMeds = meds.map(m => m.bed_id === bedId ? { ...m, is_active: false } : m);
     setMeds(updatedMeds);
 
+    // Create Notification & Line Alert
+    const notif: Notification = {
+        id: getNextNotifId(),
+        type: NotificationType.IV_ALERT,
+        hn: oldHn,
+        bed_id: bedId,
+        scheduled_at: new Date().toISOString(),
+        status: NotificationStatus.PENDING,
+        created_at: new Date().toISOString(),
+        payload: {
+            message: generateDischargeMessage(oldHn, bed ? bed.bed_number : 0),
+            target_date: new Date().toISOString()
+        }
+    };
+    setNotifications(prev => [notif, ...prev]);
+
     // 4. Perform Syncs
     performSync(() => {
-      // Sync Bed
       syncToSheet('Beds', 'update', { id: bedId, status: 'vacant', current_hn: '' });
-      
-      // Sync IVs
       updatedIvs.filter(iv => iv.bed_id === bedId && !iv.is_active && ivs.find(old => old.id === iv.id)?.is_active).forEach(iv => {
         syncToSheet('IVs', 'update', { id: iv.id, is_active: false });
       });
-
-      // Sync Meds
       updatedMeds.filter(m => m.bed_id === bedId && !m.is_active && meds.find(old => old.id === m.id)?.is_active).forEach(m => {
         syncToSheet('Meds', 'update', { id: m.id, is_active: false });
+      });
+
+      // Sync Notification
+      syncToSheet('Notifications', 'create', notif);
+      sendLineAlertToScript(notif, { 
+          customTitle: 'Discharged', 
+          customColor: '#64748b', // Slate
+          customDetail: 'Status: Discharged' 
       });
     });
   };
 
   const handleAddIV = (bedId: number, hn: string, type: string, hours: number, startTime: string) => {
     const start = new Date(startTime);
-    // Calculate Due date based on Start time + Hours
     const due = new Date(start.getTime() + (hours * 60 * 60 * 1000));
     
     const newIV: IVFluid = {
-      id: Date.now(),
+      id: getNextId(),
       hn,
       bed_id: bedId,
       started_at: start.toISOString(),
@@ -150,12 +200,38 @@ const App: React.FC = () => {
     };
     
     setIvs(prev => [...prev, newIV]);
-    performSync(() => syncToSheet('IVs', 'create', newIV));
+
+    // Create Notification & Line Alert
+    const bed = beds.find(b => b.id === bedId);
+    const notif: Notification = {
+        id: getNextNotifId(),
+        type: NotificationType.IV_ALERT,
+        hn: hn,
+        bed_id: bedId,
+        scheduled_at: start.toISOString(),
+        status: NotificationStatus.PENDING,
+        created_at: new Date().toISOString(),
+        payload: {
+            message: generateIVStartMessage(hn, bed ? bed.bed_number : 0, type, startTime),
+            target_date: due.toISOString()
+        }
+    };
+    setNotifications(prev => [notif, ...prev]);
+
+    performSync(() => {
+        syncToSheet('IVs', 'create', newIV);
+        syncToSheet('Notifications', 'create', notif);
+        sendLineAlertToScript(notif, { 
+            customTitle: 'New IV Order', 
+            customColor: '#0ea5e9', // Sky Blue
+            customDetail: `Due: ${due.toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit'})}` 
+        });
+    });
   };
 
   const handleAddMed = (bedId: number, hn: string, name: string, code: string, startTime: string, expireDate: string) => {
     const newMed: HighRiskMed = {
-      id: Date.now(),
+      id: getNextId(),
       hn,
       bed_id: bedId,
       started_at: new Date(startTime).toISOString(),
@@ -166,7 +242,33 @@ const App: React.FC = () => {
     };
     
     setMeds(prev => [...prev, newMed]);
-    performSync(() => syncToSheet('Meds', 'create', newMed));
+
+    // Create Notification & Line Alert
+    const bed = beds.find(b => b.id === bedId);
+    const notif: Notification = {
+        id: getNextNotifId(),
+        type: NotificationType.MED_ALERT,
+        hn: hn,
+        bed_id: bedId,
+        scheduled_at: startTime,
+        status: NotificationStatus.PENDING,
+        created_at: new Date().toISOString(),
+        payload: {
+            message: generateMedStartMessage(hn, bed ? bed.bed_number : 0, name, startTime),
+            target_date: expireDate
+        }
+    };
+    setNotifications(prev => [notif, ...prev]);
+
+    performSync(() => {
+        syncToSheet('Meds', 'create', newMed);
+        syncToSheet('Notifications', 'create', notif);
+        sendLineAlertToScript(notif, { 
+            customTitle: 'New Med Order', 
+            customColor: '#14b8a6', // Teal
+            customDetail: `Exp: ${new Date(expireDate).toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit'})}` 
+        });
+    });
   };
   
   // --- Bed CRUD ---
@@ -255,12 +357,21 @@ const App: React.FC = () => {
             lastUpdated={lastUpdated}
             lang={lang}
           />
-        ) : (
+        ) : currentView === 'notifications' ? (
           <div className="h-full overflow-y-auto pb-4">
             <NotificationPage 
               notifications={notifications}
               onMarkAsRead={handleMarkAsRead}
               lang={lang}
+            />
+          </div>
+        ) : (
+          <div className="h-full overflow-hidden">
+            <CalendarPage 
+               beds={beds}
+               ivs={ivs}
+               meds={meds}
+               lang={lang}
             />
           </div>
         )}
@@ -280,6 +391,20 @@ const App: React.FC = () => {
                <LayoutDashboard size={26} strokeWidth={currentView === 'dashboard' ? 2.5 : 2} />
             </div>
             <span className="text-[10px] font-bold tracking-wide">{t.home}</span>
+          </button>
+
+          <button
+            onClick={() => setCurrentView('calendar')}
+            className={`flex flex-col items-center justify-center w-full h-full space-y-1.5 transition-all duration-300 group ${
+              currentView === 'calendar' ? 'text-indigo-600' : 'text-slate-300 hover:text-slate-500'
+            }`}
+          >
+            <div className={`p-2 rounded-2xl transition-all duration-300 ${
+              currentView === 'calendar' ? 'bg-indigo-50 shadow-sm scale-105' : 'group-hover:bg-slate-50'
+            }`}>
+               <Calendar size={26} strokeWidth={currentView === 'calendar' ? 2.5 : 2} />
+            </div>
+            <span className="text-[10px] font-bold tracking-wide">{t.calendar}</span>
           </button>
 
           <button

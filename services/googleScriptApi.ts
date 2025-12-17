@@ -118,8 +118,14 @@ export const syncToSheet = async (sheetName: string, operation: SyncOperation, d
   }
 };
 
+interface LineOptions {
+    customTitle?: string;
+    customColor?: string;
+    customDetail?: string;
+}
+
 // --- LINE Alert ---
-export const sendLineAlertToScript = async (notification: Notification) => {
+export const sendLineAlertToScript = async (notification: Notification, options?: LineOptions) => {
   const url = getScriptUrl();
   if (!url) return;
 
@@ -130,15 +136,26 @@ export const sendLineAlertToScript = async (notification: Notification) => {
   const dateStr = targetDate.toLocaleDateString('th-TH');
   const timeStr = targetDate.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
 
+  // Determine Title and Color
+  // Default for "Alerts" (Warnings)
+  let title = isIV ? 'IV Fluid Alert' : 'High-Risk Med Alert';
+  let color = isIV ? '#3b82f6' : '#ef4444'; // Blue-500 : Red-500
+  let detail = isIV 
+      ? `Due: ${dateStr} ${timeStr}` 
+      : `Expire: ${dateStr} ${timeStr}`;
+
+  // Override if Custom Options provided (For Actions like "Start IV")
+  if (options?.customTitle) title = options.customTitle;
+  if (options?.customColor) color = options.customColor;
+  if (options?.customDetail) detail = options.customDetail;
+
   const linePayload = {
-    title: isIV ? '⚠️ แจ้งเตือนสารน้ำ (IV Alert)' : '⚠️ แจ้งเตือนยาความเสี่ยงสูง (High Risk Med)',
-    color: isIV ? '#0284c7' : '#e11d48', // Sky-600 vs Rose-600
+    title: title,
+    color: color,
     message: notification.payload.message,
     hn: notification.hn,
     bed: notification.bed_id,
-    detail: isIV 
-      ? `ครบกำหนด: ${dateStr} เวลา ${timeStr}` 
-      : `หมดฤทธิ์: ${dateStr} เวลา ${timeStr}`
+    detail: detail
   };
 
   try {
