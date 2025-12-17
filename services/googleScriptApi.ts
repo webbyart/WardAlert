@@ -2,7 +2,7 @@
 import { Notification, NotificationType } from '../types';
 
 // *** CONSTANT: The Specific Web App URL provided ***
-const FIXED_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbywR4vhM6yRM1n-jMxxddPyyaG0okNq_SvC4T7_wBjAPSAael4Wwpw9Zni7gu4uGjDR/exec';
+const FIXED_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbySc6hcwSsHRLErMIX1VrQhsH3amZIlL0uP5MhB1IUEN5_HXeydfs1a68et5KQ3hBPE/exec';
 
 export const saveScriptUrl = (url: string) => {
   // Deprecated: URL is now fixed.
@@ -18,13 +18,15 @@ export const getScriptUrl = () => {
 const sendToGas = async (payload: any) => {
   const url = getScriptUrl();
   
-  const isRead = payload.action === 'read_all';
+  // Debug Payload
+  if (payload.action === 'send_line') {
+     console.log('--- SENDING LINE PAYLOAD TO GAS ---');
+     console.log(JSON.stringify(payload, null, 2));
+  }
   
-  // Use 'cors' mode to allow reading the response (needed for read_all)
   try {
     const response = await fetch(url, {
       method: 'POST',
-      // 'cors' is required to read the response body from GAS
       mode: 'cors', 
       headers: {
         'Content-Type': 'text/plain;charset=utf-8', 
@@ -32,22 +34,28 @@ const sendToGas = async (payload: any) => {
       body: JSON.stringify(payload)
     });
 
-    if (isRead) {
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      return await response.json();
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+    const jsonResponse = await response.json();
+
+    // Debug Response from GAS
+    if (payload.action === 'send_line') {
+       console.log('--- GAS RESPONSE ---');
+       console.log(jsonResponse);
     }
+
+    return jsonResponse;
+
   } catch (error) {
     console.error('Error sending to GAS:', error);
-    if (isRead) throw error; // Rethrow for reads so UI knows it failed
+    // Rethrow error so UI knows something went wrong
+    throw error;
   }
 };
 
 export const testConnection = async () => {
   const url = getScriptUrl();
   try {
-     // We use a simple fetch to check if the script endpoint is reachable
-     // Note: mode 'no-cors' is used for simple pings where we don't need the body,
-     // but to be sure the app works, we usually rely on 'read_all' working.
      await fetch(`${url}?action=test`, { mode: 'no-cors' });
      return true;
   } catch(e) {
@@ -74,7 +82,6 @@ export const seedDatabase = async () => {
 
 export const fetchInitialData = async () => {
   try {
-    // console.log('Fetching fresh data from Sheet...');
     const result = await sendToGas({ action: 'read_all' });
     if (result && result.status === 'success') {
       return result.data;
@@ -119,21 +126,34 @@ export const sendLineAlertToScript = async (notification: Notification, options?
   const dateStr = targetDate.toLocaleDateString('th-TH');
   const timeStr = targetDate.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
 
-  // Determine Title and Color
+  // Default Mapping based on NotificationType
+  let type = isIV ? 'iv' : 'med';
   let title = isIV ? 'IV Fluid Alert' : 'High-Risk Med Alert';
-  let color = isIV ? '#3b82f6' : '#ef4444'; // Blue-500 : Red-500
+  // Note: color is now handled by GAS based on 'type', but we keep logic just in case
   let detail = isIV 
       ? `Due: ${dateStr} ${timeStr}` 
       : `Expire: ${dateStr} ${timeStr}`;
 
-  // Override if Custom Options provided (For Actions like "Start IV")
-  if (options?.customTitle) title = options.customTitle;
-  if (options?.customColor) color = options.customColor;
+  // Override if Custom Options provided (e.g. from App.tsx Admit/Discharge/New Orders)
+  if (options?.customTitle) {
+      title = options.customTitle;
+      
+      // Heuristic to map Custom Titles to correct GAS Theme Type
+      const lowerTitle = title.toLowerCase();
+      if (lowerTitle.includes('admit') || lowerTitle.includes('discharge') || lowerTitle.includes('bed')) {
+          type = 'bed';
+      } else if (lowerTitle.includes('iv')) {
+          type = 'iv';
+      } else if (lowerTitle.includes('med')) {
+          type = 'med';
+      }
+  }
+  
   if (options?.customDetail) detail = options.customDetail;
 
   const linePayload = {
+    type: type, // New required field for GAS Theme
     title: title,
-    color: color,
     message: notification.payload.message,
     hn: notification.hn,
     bed: notification.bed_id,
@@ -141,11 +161,13 @@ export const sendLineAlertToScript = async (notification: Notification, options?
   };
 
   try {
-    await sendToGas({
+    // Return the response so caller can check for success/failure
+    return await sendToGas({
       action: 'send_line',
       payload: linePayload
     });
   } catch (e) {
     console.error('Failed to send LINE', e);
+    throw e;
   }
 };

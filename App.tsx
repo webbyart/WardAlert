@@ -6,8 +6,8 @@ import SettingsModal from './components/SettingsModal';
 import CalendarPage from './components/CalendarPage';
 import { Bed, IVFluid, HighRiskMed, Notification, BedStatus, NotificationStatus, NotificationType, LogEntry } from './types';
 import { runAlertScanner, generateIVStartMessage, generateMedStartMessage, generateAdmitMessage, generateDischargeMessage } from './services/alertLogic';
-import { sendLineAlertToScript, syncToSheet, fetchInitialData, getScriptUrl } from './services/googleScriptApi';
-import { LayoutDashboard, Bell, Globe, Settings, Calendar } from 'lucide-react';
+import { sendLineAlertToScript, syncToSheet, fetchInitialData, getScriptUrl, testConnection } from './services/googleScriptApi';
+import { LayoutDashboard, Bell, Globe, Settings, Calendar, Wifi, WifiOff, Loader2 } from 'lucide-react';
 import { Language, translations } from './utils/translations';
 
 const App: React.FC = () => {
@@ -21,6 +21,9 @@ const App: React.FC = () => {
   // Loading & Sync States
   const [isLoading, setIsLoading] = useState(true); // Initial load
   const [isSyncing, setIsSyncing] = useState(false); // Background sync
+  
+  // Connection Status State (New)
+  const [connectionStatus, setConnectionStatus] = useState<'idle' | 'checking' | 'connected' | 'error'>('checking');
   
   // Track last update time
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -59,17 +62,53 @@ const App: React.FC = () => {
         if (data.notifications) setNotifications(data.notifications);
         if (data.logs) setLogs(data.logs);
         setLastUpdated(new Date());
+        
+        // If data load succeeds, we assume connection is good
+        if (isBackground) setConnectionStatus('connected');
       }
     } catch (error) {
       console.error("Sync error:", error);
+      if (!isBackground) setConnectionStatus('error');
     } finally {
       if (!isBackground) setIsLoading(false);
     }
   }, []);
 
-  // 1. Initial Load
+  // 1. Initial System Startup (Auto Connect & Load)
   useEffect(() => {
-    loadData(false);
+    const initSystem = async () => {
+        setConnectionStatus('checking');
+        console.log("Auto-connecting to Google Apps Script...");
+        
+        try {
+            // Step 1: Test Connectivity ("Ping")
+            const isConnected = await testConnection();
+            
+            if (isConnected) {
+                console.log("Connection successful!");
+                setConnectionStatus('connected');
+                
+                // Step 2: Load Data
+                await loadData(false);
+                
+                // Hide success message after 3 seconds
+                setTimeout(() => {
+                    setConnectionStatus(prev => prev === 'connected' ? 'idle' : prev);
+                }, 3000);
+            } else {
+                console.error("Connection failed.");
+                setConnectionStatus('error');
+                // Try loading data anyway, maybe read works but test failed
+                loadData(false); 
+            }
+        } catch (e) {
+            console.error("Initialization error", e);
+            setConnectionStatus('error');
+            loadData(false);
+        }
+    };
+
+    initSystem();
   }, [loadData]);
 
   // 2. Realtime Polling (Multi-user Sync) - Runs every 5 seconds
@@ -111,6 +150,9 @@ const App: React.FC = () => {
       await action();
       // After action, we trigger a background load to ensure we have latest IDs/state
       setTimeout(() => loadData(true), 1000);
+    } catch (e) {
+      console.error("Sync action failed", e);
+      setConnectionStatus('error');
     } finally {
       setTimeout(() => {
         setIsSyncing(false);
@@ -374,6 +416,26 @@ const App: React.FC = () => {
   return (
     <div className="flex flex-col h-screen bg-transparent font-sans text-slate-800">
       
+      {/* --- Connection Status Indicator --- */}
+      {connectionStatus !== 'idle' && (
+        <div className={`
+          fixed top-4 left-1/2 -translate-x-1/2 z-[60] px-4 py-2 rounded-full shadow-xl border flex items-center gap-2 animate-fade-in-up transition-all backdrop-blur-md
+          ${connectionStatus === 'connected' ? 'bg-emerald-500/90 text-white border-emerald-400' : ''}
+          ${connectionStatus === 'checking' ? 'bg-amber-100/90 text-amber-700 border-amber-200' : ''}
+          ${connectionStatus === 'error' ? 'bg-rose-500/90 text-white border-rose-400' : ''}
+        `}>
+           {connectionStatus === 'checking' && <Loader2 size={16} className="animate-spin" />}
+           {connectionStatus === 'connected' && <Wifi size={16} />}
+           {connectionStatus === 'error' && <WifiOff size={16} />}
+           
+           <span className="text-xs font-bold">
+              {connectionStatus === 'checking' && 'Checking Connection...'}
+              {connectionStatus === 'connected' && 'System Connected'}
+              {connectionStatus === 'error' && 'Connection Failed'}
+           </span>
+        </div>
+      )}
+
       {/* Settings Button (Top Left) */}
       <button 
         onClick={() => setIsSettingsOpen(true)}

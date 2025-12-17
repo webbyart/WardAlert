@@ -14,10 +14,11 @@ interface SettingsModalProps {
 // THE FIXED GOOGLE APPS SCRIPT CODE TO DISPLAY
 const GOOGLE_APPS_SCRIPT_CODE = `
 // *** COPY THIS CODE TO GOOGLE APPS SCRIPT ***
-// Version: 2.0 (With History Logs)
+// Version: 2.4 (Explicit Error Logging & Theme Support)
 
-const LINE_TOKEN = 'YOUR_LINE_TOKEN_HERE'; 
-const LINE_GROUP_ID = 'YOUR_GROUP_ID_HERE';
+// --- YOUR CONFIGURATION ---
+const LINE_TOKEN = 'zapsSkhW36JupRHDMINsTGUBYDQxbmMWCQDeJOjsF6IhmDpXXbisaBRGnhYDqYqc7BpABzHM2dllyXi6BO/s/atMCg2pTV0kRRHn/pkX8gp9sVQhaS0sSfEWVjpiZA9d3PWWeBfNVWzyNiwlLYK8CQdB04t89/1O/w1cDnyilFU=';
+const LINE_GROUP_ID = 'C88ba55d350466c097b89b07c1afd5d3c';
 
 function doGet(e) {
   const action = e.parameter.action;
@@ -32,10 +33,11 @@ function doPost(e) {
   try {
     let body = {};
     if (e.postData && e.postData.contents) {
-       try { body = JSON.parse(e.postData.contents); } catch(ex) { body = {}; }
+       try { body = JSON.parse(e.postData.contents); } catch(ex) { console.error('JSON Parse Error', ex); body = {}; }
     }
     
     const action = body.action;
+    console.log("Received Action: " + action);
 
     if (action === 'read_all') {
       const data = readAllTables();
@@ -43,9 +45,17 @@ function doPost(e) {
     }
 
     if (action === 'send_line') {
-      if (!body.payload) return responseJSON({status:'error'});
-      sendLineFlexMessage(body.payload);
-      return responseJSON({status: 'success'});
+      console.log("Payload received: " + JSON.stringify(body.payload));
+      
+      if (!body.payload) {
+         return responseJSON({status:'error', message: 'No payload provided'});
+      }
+      
+      // Perform send and Capture Result
+      const result = sendLineFlexMessage(body.payload);
+      
+      // Return the result (even if failed) so UI knows
+      return responseJSON({status: 'success', line_response: result});
     } 
     
     if (action === 'sync') {
@@ -62,9 +72,10 @@ function doPost(e) {
        return responseJSON({ status: 'success' });
     }
 
-    return responseJSON({ status: 'error', message: 'Unknown action' });
+    return responseJSON({ status: 'error', message: 'Unknown action: ' + action });
 
   } catch (err) {
+    console.error("Global Error: " + err.toString());
     return responseJSON({ status: 'error', message: err.toString() });
   }
 }
@@ -76,7 +87,7 @@ function readAllTables() {
     ivs: readSheet('IVs'),
     meds: readSheet('Meds'),
     notifications: readSheet('Notifications'),
-    logs: readSheet('Logs') // Added Logs
+    logs: readSheet('Logs') 
   };
 }
 
@@ -89,10 +100,8 @@ function readSheet(name) {
   return data.slice(1).map(row => {
     let obj = {};
     headers.forEach((h, i) => {
-       // Convert numbers if possible, but keep string for HN
        let val = row[i];
        if (h === 'id' || h === 'bed_id' || h === 'bed_number') val = Number(val);
-       // Handle checkbox/boolean
        if (h === 'is_active') val = (val === true || val === 'TRUE');
        obj[h] = val;
     });
@@ -105,7 +114,6 @@ function handleSync(sheetName, operation, data) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(sheetName);
   if (!sheet) {
-     // Auto-create if missing (failsafe)
      if (sheetName === 'Logs') {
         sheet = ss.insertSheet('Logs');
         sheet.appendRow(['id', 'action_type', 'details', 'timestamp']);
@@ -145,7 +153,7 @@ function setupDatabase() {
     'IVs': ['id', 'hn', 'bed_id', 'started_at', 'due_at', 'fluid_type', 'is_active'],
     'Meds': ['id', 'hn', 'bed_id', 'started_at', 'expire_at', 'med_code', 'med_name', 'is_active'],
     'Notifications': ['id', 'type', 'hn', 'bed_id', 'status', 'created_at', 'message'],
-    'Logs': ['id', 'action_type', 'details', 'timestamp'] // Added Logs Schema
+    'Logs': ['id', 'action_type', 'details', 'timestamp']
   };
   Object.keys(schemas).forEach(name => {
     let sheet = ss.getSheetByName(name);
@@ -154,10 +162,9 @@ function setupDatabase() {
 }
 
 function seedDatabaseWithMockData() {
-  setupDatabase(); // Ensure sheets exist
+  setupDatabase(); 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   
-  // Clear and Seed Beds
   const bedSheet = ss.getSheetByName('Beds');
   if (bedSheet.getLastRow() > 1) bedSheet.deleteRows(2, bedSheet.getLastRow() - 1);
   const beds = [];
@@ -173,25 +180,91 @@ function responseJSON(data) {
 }
 
 function sendLineFlexMessage(data) {
-  const { title='Alert', message='-', hn='Unknown', bed='-', detail='-', color='#000' } = data;
+  if (!data) data = {};
+
+  const {
+    type = 'info',
+    title = 'Notification',
+    message = '-',
+    hn = '-',
+    bed = '-',
+    detail = '-'
+  } = data;
+
+  const theme = {
+    iv: { color: '#E53935', icon: '💉' },
+    med: { color: '#FB8C00', icon: '💊' },
+    bed: { color: '#43A047', icon: '🛏️' },
+    summary: { color: '#1E88E5', icon: '📊' },
+    info: { color: '#546E7A', icon: 'ℹ️' }
+  };
+
+  const t = theme[type] || theme.info;
+
   const payload = {
     to: LINE_GROUP_ID,
     messages: [{
-      "type": "flex", "altText": title,
-      "contents": { "type": "bubble", 
-        "header": { "type": "box", "layout": "vertical", "contents": [{ "type": "text", "text": title, "weight": "bold", "color": "#FFF" }], "backgroundColor": color },
-        "body": { "type": "box", "layout": "vertical", "contents": [
-           { "type": "text", "text": "HN: " + hn + " (Bed "+bed+")", "weight": "bold" },
-           { "type": "text", "text": message, "wrap": true, "size": "sm" }
-        ]}
+      type: "flex",
+      altText: title,
+      contents: {
+        type: "bubble",
+        header: {
+          type: "box",
+          layout: "vertical",
+          backgroundColor: t.color,
+          contents: [{
+            type: "text",
+            text: \`\${t.icon} \${title}\`,
+            weight: "bold",
+            size: "md"
+            // ❌ ห้ามใส่ color
+          }]
+        },
+        body: {
+          type: "box",
+          layout: "vertical",
+          spacing: "sm",
+          contents: [
+            {
+              type: "text",
+              text: \`HN: \${hn} | Bed: \${bed}\`,
+              weight: "bold"
+            },
+            { type: "separator" },
+            {
+              type: "text",
+              text: message,
+              wrap: true,
+              size: "sm"
+            },
+            {
+              type: "text",
+              text: detail,
+              wrap: true,
+              size: "xs",
+              color: "#666666" // ✔ body ใส่ color ได้
+            }
+          ]
+        }
       }
     }]
   };
-  UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
-    'method': 'post',
-    'headers': { 'Authorization': 'Bearer ' + LINE_TOKEN, 'Content-Type': 'application/json' },
-    'payload': JSON.stringify(payload)
-  });
+
+  const res = UrlFetchApp.fetch(
+    'https://api.line.me/v2/bot/message/push',
+    {
+      method: 'post',
+      headers: {
+        Authorization: 'Bearer ' + LINE_TOKEN,
+        'Content-Type': 'application/json'
+      },
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    }
+  );
+
+  console.log('LINE Response:', res.getResponseCode(), res.getContentText());
+  return res.getContentText();
 }
 `;
 
@@ -214,12 +287,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, lang }) 
       try {
           const data = await fetchInitialData();
           if (data) {
-             // Check if 'logs' array exists in the response
              if (Array.isArray(data.logs)) {
                  setScriptVersionStatus('ok');
              } else {
                  setScriptVersionStatus('outdated');
-                 setShowCode(true); // Auto open code if outdated
+                 setShowCode(true);
              }
           }
       } catch (e) {
@@ -235,7 +307,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, lang }) 
       if (res) {
         setStatus('success');
         setMsg('Connection Successful!');
-        checkScriptVersion(); // Re-check version on test
+        checkScriptVersion(); 
       } else {
         throw new Error('Failed');
       }
@@ -283,13 +355,44 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, lang }) 
       status: 'pending' as any,
       created_at: new Date().toISOString(),
       payload: {
-        message: 'This is a test message from WardAlert System.',
+        message: 'Test message from WardAlert.',
         target_date: new Date().toISOString()
       }
     };
-    await sendLineAlertToScript(testAlert);
-    setStatus('success');
-    setMsg('Test message sent!');
+    
+    try {
+        const result: any = await sendLineAlertToScript(testAlert);
+        
+        // Check actual response string from GAS
+        if (result && result.line_response) {
+            const lineRes = result.line_response;
+            
+            // The new script returns raw JSON. Success is usually "{}" for Push Message.
+            // Failure usually contains "message" key e.g. {"message":"..."}
+            if (lineRes === '{}') {
+                setStatus('success');
+                setMsg('Message Sent! (LINE API OK)');
+            } else if (lineRes.includes('"message"')) {
+                setStatus('error');
+                // Try to extract clean error
+                setMsg("LINE Error: " + lineRes.substring(0, 50));
+            } else if (lineRes.includes("FAILED") || lineRes.includes("ERROR")) {
+                 setStatus('error');
+                 setMsg(lineRes);
+            } else {
+                // Unknown response, treat as success or warning
+                setStatus('success');
+                setMsg('Response: ' + lineRes);
+            }
+        } else {
+            // Fallback
+            setStatus('success');
+            setMsg('Sent (Check Group). If fail, Update Script.');
+        }
+    } catch(e) {
+        setStatus('error');
+        setMsg('Failed to connect to GAS.');
+    }
   };
 
   const copyToClipboard = () => {
@@ -344,7 +447,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, lang }) 
                     </h4>
                     <p className={`text-xs leading-relaxed ${scriptVersionStatus === 'outdated' ? 'text-amber-800' : 'text-emerald-700'}`}>
                         {scriptVersionStatus === 'outdated' 
-                            ? 'Your Google Script is missing the "Logs" feature. Please update code below.' 
+                            ? 'Please COPY the code below and update your Google Script.' 
                             : 'Google Apps Script is up to date.'
                         }
                     </p>
@@ -425,7 +528,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, lang }) 
               <div className="mt-4 animate-fade-in-up">
                 <div className="bg-amber-50 border border-amber-100 p-4 rounded-t-xl flex gap-3 text-xs text-amber-800">
                   <AlertCircle size={16} className="shrink-0 text-amber-500"/>
-                  {t.setupInstructions}
+                  <span>IMPORTANT: When deploying, select <b>'New Version'</b> in Manage Deployments.</span>
                 </div>
                 <div className="relative bg-slate-800 rounded-b-xl overflow-hidden">
                   <button 
