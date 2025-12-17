@@ -1,8 +1,9 @@
+
 import React, { useState, useEffect } from 'react';
-import { getScriptUrl, saveScriptUrl, testConnection, sendLineAlertToScript, triggerSetup, seedDatabase } from '../services/googleScriptApi';
+import { testConnection, sendLineAlertToScript, triggerSetup, seedDatabase } from '../services/googleScriptApi';
 import { Language, translations } from '../utils/translations';
 import { NotificationType } from '../types';
-import { Settings, CheckCircle, AlertCircle, Send, Database, FileSpreadsheet, Copy, Code, Server, CloudLightning } from 'lucide-react';
+import { Settings, CheckCircle, AlertCircle, Send, Database, FileSpreadsheet, Copy, Code, Server, CloudLightning, ShieldCheck } from 'lucide-react';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -185,28 +186,18 @@ function sendLineFlexMessage(data) {
 
 const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, lang }) => {
   const t = translations[lang];
-  const [url, setUrl] = useState('');
   const [status, setStatus] = useState<'idle' | 'success' | 'error' | 'loading'>('idle');
   const [msg, setMsg] = useState('');
   const [showCode, setShowCode] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
-      setUrl(getScriptUrl() || '');
       setStatus('idle');
       setMsg('');
     }
   }, [isOpen]);
 
-  const handleSave = () => {
-    saveScriptUrl(url);
-    setStatus('success');
-    setMsg('URL Saved locally.');
-    setTimeout(() => setMsg(''), 2000);
-  };
-
   const handleTestConnection = async () => {
-    if (!url) return;
     setStatus('loading');
     setMsg('Testing connection...');
     try {
@@ -224,7 +215,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, lang }) 
   };
 
   const handleSetupSheet = async () => {
-    if (!url) { setStatus('error'); setMsg('Please save URL first'); return; }
     setStatus('loading');
     setMsg('Initializing Sheets...');
     try {
@@ -238,7 +228,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, lang }) 
   };
 
   const handleSeedData = async () => {
-    if (!url) { setStatus('error'); setMsg('Please save URL first'); return; }
     setStatus('loading');
     setMsg('Seeding sample data...');
     try {
@@ -252,7 +241,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, lang }) 
   };
 
   const handleTestLine = async () => {
-    if (!url) return;
     setStatus('loading');
     setMsg('Sending test message...');
     const testAlert = {
@@ -298,33 +286,15 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, lang }) 
 
         <div className="p-6 overflow-y-auto custom-scrollbar space-y-8 flex-1">
           
-          {/* Connection Section */}
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <label className="text-sm font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
-                <Database size={16} /> {t.scriptUrl}
-              </label>
-              <div className={`text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1 ${status === 'success' ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-500'}`}>
-                {status === 'success' ? <CheckCircle size={12} /> : <div className="w-2 h-2 rounded-full bg-slate-400" />}
-                {status === 'success' ? t.connected : t.disconnected}
-              </div>
-            </div>
-            
-            <div className="relative group">
-              <input 
-                type="text"
-                className="w-full border-2 border-slate-200 bg-slate-50/50 rounded-2xl p-4 pr-32 text-sm font-mono text-slate-600 outline-none transition-all duration-300 focus:border-blue-300 focus:ring-4 focus:ring-blue-100 focus:bg-white shadow-inner"
-                placeholder="https://script.google.com/macros/s/.../exec"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-              />
-              <button 
-                onClick={handleSave}
-                className="absolute right-2 top-2 bottom-2 bg-slate-800 text-white px-5 rounded-xl text-sm font-bold hover:bg-slate-700 hover:scale-[1.02] active:scale-95 transition-all shadow-lg shadow-slate-200"
-              >
-                {t.saveSettings}
-              </button>
-            </div>
+          {/* Connection Info */}
+          <div className="bg-sky-50 border border-sky-100 p-4 rounded-xl flex items-start gap-3">
+             <ShieldCheck className="text-sky-500 shrink-0 mt-0.5" size={20} />
+             <div>
+                <h4 className="font-bold text-sky-900 text-sm mb-1">Secure Connection Active</h4>
+                <p className="text-xs text-sky-700 leading-relaxed">
+                   The system is permanently connected to the designated Google Sheet. Data is synchronized automatically.
+                </p>
+             </div>
           </div>
 
           {/* Action Grid */}
@@ -332,7 +302,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, lang }) 
             {/* Test Connection */}
             <button 
               onClick={handleTestConnection} 
-              disabled={!url} 
               className="group relative overflow-hidden bg-gradient-to-br from-indigo-50 to-white border border-indigo-100 p-4 rounded-2xl shadow-sm hover:shadow-lg hover:shadow-indigo-100 transition-all duration-300 hover:scale-[1.03] hover:opacity-100 active:scale-[0.98] text-left"
             >
               <div className="flex items-center gap-3 mb-2">
@@ -345,7 +314,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, lang }) 
             {/* Test LINE */}
             <button 
               onClick={handleTestLine} 
-              disabled={!url} 
               className="group relative overflow-hidden bg-gradient-to-br from-green-50 to-white border border-green-100 p-4 rounded-2xl shadow-sm hover:shadow-lg hover:shadow-green-100 transition-all duration-300 hover:scale-[1.03] hover:opacity-100 active:scale-[0.98] text-left"
             >
               <div className="flex items-center gap-3 mb-2">
@@ -358,7 +326,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, lang }) 
             {/* Setup Sheet */}
             <button 
               onClick={handleSetupSheet} 
-              disabled={!url} 
               className="group relative overflow-hidden bg-gradient-to-br from-amber-50 to-white border border-amber-100 p-4 rounded-2xl shadow-sm hover:shadow-lg hover:shadow-amber-100 transition-all duration-300 hover:scale-[1.03] hover:opacity-100 active:scale-[0.98] text-left"
             >
               <div className="flex items-center gap-3 mb-2">
@@ -371,7 +338,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, lang }) 
             {/* Seed Data */}
             <button 
               onClick={handleSeedData} 
-              disabled={!url} 
               className="group relative overflow-hidden bg-gradient-to-br from-pink-50 to-white border border-pink-100 p-4 rounded-2xl shadow-sm hover:shadow-lg hover:shadow-pink-100 transition-all duration-300 hover:scale-[1.03] hover:opacity-100 active:scale-[0.98] text-left"
             >
               <div className="flex items-center gap-3 mb-2">

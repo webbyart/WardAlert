@@ -1,30 +1,30 @@
 
 import { Notification, NotificationType } from '../types';
 
-// The specific Web App URL provided for this project
-const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwkhn-4_SKTHvVFV-JDYgcQVFvgh7-bwErxZSu_MHPiQ2bh8s80WXPHGiyPOxY6GR8/exec';
+// *** CONSTANT: The Specific Web App URL provided ***
+const FIXED_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx7k__DGVgZ_xBbLezmvtMRIP1RxuS1hzu1bN9mL44MkycThm8CsK5KWUF8EeipEcou/exec';
 
 export const saveScriptUrl = (url: string) => {
-  localStorage.setItem('wardAlert_scriptUrl', url);
+  // Deprecated: URL is now fixed.
+  console.log('URL saving is disabled in this version. Using fixed URL.');
 };
 
 export const getScriptUrl = () => {
-  const stored = localStorage.getItem('wardAlert_scriptUrl');
-  // Always fallback to the hardcoded URL if local storage is empty
-  return (stored && stored.trim() !== '') ? stored : DEFAULT_SCRIPT_URL;
+  // Always return the fixed URL
+  return FIXED_SCRIPT_URL;
 };
 
 // Helper to send robust requests to GAS
 const sendToGas = async (payload: any) => {
   const url = getScriptUrl();
-  if (!url) throw new Error('No URL configured');
-
+  
   const isRead = payload.action === 'read_all';
   
   // Use 'cors' mode to allow reading the response (needed for read_all)
   try {
     const response = await fetch(url, {
       method: 'POST',
+      // 'cors' is required to read the response body from GAS
       mode: 'cors', 
       headers: {
         'Content-Type': 'text/plain;charset=utf-8', 
@@ -44,9 +44,10 @@ const sendToGas = async (payload: any) => {
 
 export const testConnection = async () => {
   const url = getScriptUrl();
-  if (!url) return false;
-  
   try {
+     // We use a simple fetch to check if the script endpoint is reachable
+     // Note: mode 'no-cors' is used for simple pings where we don't need the body,
+     // but to be sure the app works, we usually rely on 'read_all' working.
      await fetch(`${url}?action=test`, { mode: 'no-cors' });
      return true;
   } catch(e) {
@@ -56,8 +57,6 @@ export const testConnection = async () => {
 
 export const triggerSetup = async () => {
   const url = getScriptUrl();
-  if (!url) return;
-  
   try {
     await fetch(`${url}?action=setup`, { mode: 'no-cors' });
   } catch (e) {
@@ -66,9 +65,6 @@ export const triggerSetup = async () => {
 };
 
 export const seedDatabase = async () => {
-  const url = getScriptUrl();
-  if (!url) return;
-
   try {
     await sendToGas({ action: 'seed' });
   } catch(e) {
@@ -77,11 +73,8 @@ export const seedDatabase = async () => {
 };
 
 export const fetchInitialData = async () => {
-  const url = getScriptUrl();
-  if (!url) return null;
-
   try {
-    console.log('Fetching data from:', url);
+    // console.log('Fetching fresh data from Sheet...');
     const result = await sendToGas({ action: 'read_all' });
     if (result && result.status === 'success') {
       return result.data;
@@ -97,13 +90,6 @@ export const fetchInitialData = async () => {
 export type SyncOperation = 'create' | 'update' | 'delete';
 
 export const syncToSheet = async (sheetName: string, operation: SyncOperation, data: any) => {
-  const url = getScriptUrl();
-  
-  if (!url) {
-    console.warn(`[Local Mode] Sync to '${sheetName}' skipped (No URL configured).`);
-    return;
-  }
-
   try {
     console.log(`Syncing to ${sheetName} [${operation}]...`);
     await sendToGas({
@@ -126,9 +112,6 @@ interface LineOptions {
 
 // --- LINE Alert ---
 export const sendLineAlertToScript = async (notification: Notification, options?: LineOptions) => {
-  const url = getScriptUrl();
-  if (!url) return;
-
   const isIV = notification.type === NotificationType.IV_ALERT;
   
   // Format dates for friendly display
@@ -137,7 +120,6 @@ export const sendLineAlertToScript = async (notification: Notification, options?
   const timeStr = targetDate.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
 
   // Determine Title and Color
-  // Default for "Alerts" (Warnings)
   let title = isIV ? 'IV Fluid Alert' : 'High-Risk Med Alert';
   let color = isIV ? '#3b82f6' : '#ef4444'; // Blue-500 : Red-500
   let detail = isIV 

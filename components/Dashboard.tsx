@@ -20,12 +20,14 @@ interface DashboardProps {
   onDeleteBed: (bedId: number) => void;
   isLoading: boolean;
   lastUpdated: Date | null;
+  // New prop to trigger reload from App
+  onRefresh?: () => void;
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ 
   beds, ivs, meds, notifications, lang, isLoading, lastUpdated,
   onAdmit, onDischarge, onAddIV, onAddMed,
-  onAddBed, onUpdateBed, onDeleteBed
+  onAddBed, onUpdateBed, onDeleteBed, onRefresh
 }) => {
   const t = translations[lang];
 
@@ -155,11 +157,17 @@ const Dashboard: React.FC<DashboardProps> = ({
         </div>
         
         <div className="flex flex-col items-end gap-1">
-          <div className={`flex items-center gap-2 text-xs font-bold px-4 py-2 rounded-full border shadow-sm transition-all duration-300 ${isLoading ? 'bg-sky-50 text-sky-600 border-sky-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>
+          {/* Manual Refresh Button */}
+          <button 
+             onClick={onRefresh}
+             disabled={isLoading}
+             className={`flex items-center gap-2 text-xs font-bold px-4 py-2 rounded-full border shadow-sm transition-all duration-300 
+             ${isLoading ? 'bg-sky-50 text-sky-600 border-sky-100 cursor-not-allowed' : 'bg-emerald-50 text-emerald-600 border-emerald-100 hover:bg-emerald-100 cursor-pointer hover:shadow-md'}`}
+          >
               {isLoading ? (
                  <>
                    <RefreshCw size={14} className="animate-spin" />
-                   <span>Saving...</span>
+                   <span>Syncing...</span>
                  </>
               ) : (
                  <>
@@ -167,10 +175,11 @@ const Dashboard: React.FC<DashboardProps> = ({
                    <span>{t.liveUpdates}</span>
                  </>
               )}
-          </div>
+          </button>
+          
           {lastUpdated && (
             <span className="text-[10px] text-slate-400 font-mono font-medium tracking-tight mr-1">
-              {t.lastUpdated}: {lastUpdated.toLocaleTimeString(lang === 'th' ? 'th-TH' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
+              {t.lastUpdated}: {lastUpdated.toLocaleTimeString(lang === 'th' ? 'th-TH' : 'en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
             </span>
           )}
         </div>

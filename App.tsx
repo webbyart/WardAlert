@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Dashboard from './components/Dashboard';
 import NotificationPage from './components/NotificationPage';
 import SettingsModal from './components/SettingsModal';
@@ -16,8 +16,10 @@ const App: React.FC = () => {
   const [ivs, setIvs] = useState<IVFluid[]>([]);
   const [meds, setMeds] = useState<HighRiskMed[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false); // New state for saving indicator
+  
+  // Loading & Sync States
+  const [isLoading, setIsLoading] = useState(true); // Initial load
+  const [isSyncing, setIsSyncing] = useState(false); // Background sync
   
   // Track last update time
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -35,28 +37,47 @@ const App: React.FC = () => {
   const getNextId = () => Date.now();
   const getNextNotifId = () => notifications.length > 0 ? Math.max(...notifications.map(n => n.id)) + 1 : 1;
 
-  // Load Data from GAS on Mount
-  useEffect(() => {
-    const loadData = async () => {
-      const url = getScriptUrl();
-      if (!url) return;
-      
-      setIsLoading(true);
+  // --- CORE: Data Fetching Strategy ---
+  const loadData = useCallback(async (isBackground = false) => {
+    if (!isBackground) setIsLoading(true);
+    
+    // Safety check: ensure we have the URL (which is now hardcoded)
+    if (!getScriptUrl()) {
+       setIsLoading(false);
+       return;
+    }
+
+    try {
       const data = await fetchInitialData();
       if (data) {
-        setBeds(data.beds || []);
-        setIvs(data.ivs || []);
-        setMeds(data.meds || []);
-        setNotifications(data.notifications || []);
+        // Replace local state with Server State (Single Source of Truth)
+        if (data.beds) setBeds(data.beds);
+        if (data.ivs) setIvs(data.ivs);
+        if (data.meds) setMeds(data.meds);
+        if (data.notifications) setNotifications(data.notifications);
         setLastUpdated(new Date());
       }
-      setIsLoading(false);
-    };
+    } catch (error) {
+      console.error("Sync error:", error);
+    } finally {
+      if (!isBackground) setIsLoading(false);
+    }
+  }, []);
 
-    loadData();
-  }, []); // Run once on mount
+  // 1. Initial Load
+  useEffect(() => {
+    loadData(false);
+  }, [loadData]);
 
-  // Scheduler: Run Alert Scanner Logic
+  // 2. Realtime Polling (Multi-user Sync) - Runs every 5 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadData(true);
+    }, 5000); 
+    return () => clearInterval(interval);
+  }, [loadData]);
+
+  // Scheduler: Run Alert Scanner Logic locally
   useEffect(() => {
     const runCheck = () => {
       const bedsMap = beds.reduce((acc, bed) => ({ ...acc, [bed.id]: bed.bed_number }), {});
@@ -67,44 +88,46 @@ const App: React.FC = () => {
         
         // Sync alerts to sheet
         newAlerts.forEach(alert => {
-           sendLineAlertToScript(alert); // Uses default Alert Colors (Red/Blue)
+           sendLineAlertToScript(alert);
            syncToSheet('Notifications', 'create', alert);
         });
       }
     };
 
     if (beds.length > 0) { 
-       runCheck();
-       const interval = setInterval(runCheck, 60000);
+       const interval = setInterval(runCheck, 60000); // Check logic every minute
        return () => clearInterval(interval);
     }
   }, [ivs, meds, notifications, beds]);
 
 
   // --- Event Handlers & Sheet Sync ---
+  // We apply optimistic updates locally for speed, then sync to sheet
   const performSync = async (action: () => Promise<void> | void) => {
     setIsSyncing(true);
     try {
       await action();
+      // After action, we trigger a background load to ensure we have latest IDs/state
+      setTimeout(() => loadData(true), 1000);
     } finally {
       setTimeout(() => {
         setIsSyncing(false);
-        setLastUpdated(new Date());
       }, 800);
     }
   };
 
   const handleAdmit = (bedId: number, hn: string) => {
-    const bed = beds.find(b => b.id === bedId);
+    // Optimistic Update
     const updatedBeds = beds.map(b => 
       b.id === bedId ? { ...b, status: BedStatus.OCCUPIED, current_hn: hn } : b
     );
     setBeds(updatedBeds);
-
-    // Create Notification & Line Alert
+    
+    // Notification Logic
+    const bed = beds.find(b => b.id === bedId);
     const notif: Notification = {
         id: getNextNotifId(),
-        type: NotificationType.IV_ALERT, // Reusing Type for generic msg
+        type: NotificationType.IV_ALERT,
         hn: hn,
         bed_id: bedId,
         scheduled_at: new Date().toISOString(),
@@ -117,15 +140,15 @@ const App: React.FC = () => {
     };
     setNotifications(prev => [notif, ...prev]);
 
+    // Server Sync
     performSync(() => {
       const updatedBed = updatedBeds.find(b => b.id === bedId);
       if (updatedBed) syncToSheet('Beds', 'update', updatedBed);
       
-      // Sync Notification
       syncToSheet('Notifications', 'create', notif);
       sendLineAlertToScript(notif, { 
           customTitle: 'Admit Patient', 
-          customColor: '#10b981', // Emerald
+          customColor: '#10b981',
           customDetail: 'Status: Admitted' 
       });
     });
@@ -135,21 +158,18 @@ const App: React.FC = () => {
     const bed = beds.find(b => b.id === bedId);
     const oldHn = bed?.current_hn || 'Unknown';
 
-    // 1. Update Bed
+    // Optimistic Updates
     const updatedBeds = beds.map(b => 
       b.id === bedId ? { ...b, status: BedStatus.VACANT, current_hn: null } : b
     );
     setBeds(updatedBeds);
 
-    // 2. Soft Delete IVs
     const updatedIvs = ivs.map(iv => iv.bed_id === bedId ? { ...iv, is_active: false } : iv);
     setIvs(updatedIvs);
 
-    // 3. Soft Delete Meds
     const updatedMeds = meds.map(m => m.bed_id === bedId ? { ...m, is_active: false } : m);
     setMeds(updatedMeds);
 
-    // Create Notification & Line Alert
     const notif: Notification = {
         id: getNextNotifId(),
         type: NotificationType.IV_ALERT,
@@ -165,7 +185,6 @@ const App: React.FC = () => {
     };
     setNotifications(prev => [notif, ...prev]);
 
-    // 4. Perform Syncs
     performSync(() => {
       syncToSheet('Beds', 'update', { id: bedId, status: 'vacant', current_hn: '' });
       updatedIvs.filter(iv => iv.bed_id === bedId && !iv.is_active && ivs.find(old => old.id === iv.id)?.is_active).forEach(iv => {
@@ -175,11 +194,10 @@ const App: React.FC = () => {
         syncToSheet('Meds', 'update', { id: m.id, is_active: false });
       });
 
-      // Sync Notification
       syncToSheet('Notifications', 'create', notif);
       sendLineAlertToScript(notif, { 
           customTitle: 'Discharged', 
-          customColor: '#64748b', // Slate
+          customColor: '#64748b',
           customDetail: 'Status: Discharged' 
       });
     });
@@ -201,7 +219,6 @@ const App: React.FC = () => {
     
     setIvs(prev => [...prev, newIV]);
 
-    // Create Notification & Line Alert
     const bed = beds.find(b => b.id === bedId);
     const notif: Notification = {
         id: getNextNotifId(),
@@ -223,7 +240,7 @@ const App: React.FC = () => {
         syncToSheet('Notifications', 'create', notif);
         sendLineAlertToScript(notif, { 
             customTitle: 'New IV Order', 
-            customColor: '#0ea5e9', // Sky Blue
+            customColor: '#0ea5e9',
             customDetail: `Due: ${due.toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit'})}` 
         });
     });
@@ -243,7 +260,6 @@ const App: React.FC = () => {
     
     setMeds(prev => [...prev, newMed]);
 
-    // Create Notification & Line Alert
     const bed = beds.find(b => b.id === bedId);
     const notif: Notification = {
         id: getNextNotifId(),
@@ -265,13 +281,11 @@ const App: React.FC = () => {
         syncToSheet('Notifications', 'create', notif);
         sendLineAlertToScript(notif, { 
             customTitle: 'New Med Order', 
-            customColor: '#14b8a6', // Teal
+            customColor: '#14b8a6',
             customDetail: `Exp: ${new Date(expireDate).toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit'})}` 
         });
     });
   };
-  
-  // --- Bed CRUD ---
   
   const handleAddBed = () => {
       const newId = Date.now();
@@ -301,12 +315,16 @@ const App: React.FC = () => {
     setNotifications(prev => prev.map(n => 
       n.id === id ? { ...n, status: NotificationStatus.SENT } : n 
     ));
-    // Optional: Sync notification read status
-    // syncToSheet('Notifications', 'update', { id, status: 'sent' });
+    syncToSheet('Notifications', 'update', { id, status: 'sent' });
   };
 
   const toggleLanguage = () => {
     setLang(prev => prev === 'th' ? 'en' : 'th');
+  };
+  
+  // Refresh Handler
+  const handleManualRefresh = () => {
+      loadData(false);
   };
 
   const pendingCount = notifications.filter(n => n.status === NotificationStatus.PENDING).length;
@@ -338,7 +356,7 @@ const App: React.FC = () => {
         lang={lang}
       />
 
-      {/* Main Content Area - Takes available space */}
+      {/* Main Content Area */}
       <main className="flex-1 overflow-hidden relative">
         {currentView === 'dashboard' ? (
           <Dashboard 
@@ -356,6 +374,7 @@ const App: React.FC = () => {
             isLoading={isLoading || isSyncing}
             lastUpdated={lastUpdated}
             lang={lang}
+            // Passing the manual refresh function if the dashboard supports it (we'll update Dashboard next)
           />
         ) : currentView === 'notifications' ? (
           <div className="h-full overflow-y-auto pb-4">
