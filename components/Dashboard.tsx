@@ -1,7 +1,8 @@
+
 import React, { useState, useEffect } from 'react';
 import { Bed, IVFluid, HighRiskMed, Notification, BedStatus } from '../types';
 import BedCard from './BedCard';
-import { UserPlus, Trash2, Droplet, Pill, RefreshCw, Activity, Plus, Settings, Save, X, Cloud } from 'lucide-react';
+import { UserPlus, Trash2, Droplet, Pill, RefreshCw, Activity, Plus, Settings, Save, X, Cloud, Clock, History } from 'lucide-react';
 import { Language, translations } from '../utils/translations';
 
 interface DashboardProps {
@@ -12,16 +13,17 @@ interface DashboardProps {
   lang: Language;
   onAdmit: (bedId: number, hn: string) => void;
   onDischarge: (bedId: number) => void;
-  onAddIV: (bedId: number, hn: string, type: string, days: number) => void;
-  onAddMed: (bedId: number, hn: string, name: string, code: string, expireDate: string) => void;
+  onAddIV: (bedId: number, hn: string, type: string, hours: number, startTime: string) => void;
+  onAddMed: (bedId: number, hn: string, name: string, code: string, startTime: string, expireDate: string) => void;
   onAddBed: () => void;
   onUpdateBed: (bedId: number, newNumber: number) => void;
   onDeleteBed: (bedId: number) => void;
   isLoading: boolean;
+  lastUpdated: Date | null;
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ 
-  beds, ivs, meds, notifications, lang, isLoading,
+  beds, ivs, meds, notifications, lang, isLoading, lastUpdated,
   onAdmit, onDischarge, onAddIV, onAddMed,
   onAddBed, onUpdateBed, onDeleteBed
 }) => {
@@ -30,18 +32,31 @@ const Dashboard: React.FC<DashboardProps> = ({
   // UI State for Modal only
   const [selectedBed, setSelectedBed] = useState<Bed | null>(null);
   const [showModal, setShowModal] = useState(false);
-  const [activeTab, setActiveTab] = useState<'info' | 'iv' | 'med' | 'settings'>('info');
+  const [activeTab, setActiveTab] = useState<'info' | 'iv' | 'med' | 'history' | 'settings'>('info');
 
   // Form States
   const [newHn, setNewHn] = useState('');
+  
+  // IV Form
   const [ivType, setIvType] = useState('');
-  const [ivDays, setIvDays] = useState(7);
+  const [ivHours, setIvHours] = useState(24); // Default 1 day
+  const [ivStartTime, setIvStartTime] = useState('');
+
+  // Med Form
   const [medName, setMedName] = useState('');
   const [medCode, setMedCode] = useState('');
+  const [medStartTime, setMedStartTime] = useState('');
   const [medExpireDate, setMedExpireDate] = useState('');
   
   // Bed Edit State
   const [editBedNumber, setEditBedNumber] = useState<number>(0);
+
+  // Helper to format Date for input[type="datetime-local"]
+  const getNowString = () => {
+      const now = new Date();
+      now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+      return now.toISOString().slice(0, 16);
+  };
 
   // Update modal state when selectedBed changes from outside (e.g., discharge updates status)
   useEffect(() => {
@@ -64,11 +79,17 @@ const Dashboard: React.FC<DashboardProps> = ({
     setEditBedNumber(bed.bed_number);
     setShowModal(true);
     setActiveTab('info');
-    // Reset forms
+    
+    // Reset forms with defaults
+    const nowStr = getNowString();
     setNewHn('');
     setIvType('');
+    setIvHours(24);
+    setIvStartTime(nowStr);
+    
     setMedName('');
     setMedCode('');
+    setMedStartTime(nowStr);
     setMedExpireDate('');
   };
 
@@ -87,14 +108,14 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   const submitAddIV = () => {
     if (selectedBed && selectedBed.current_hn) {
-      onAddIV(selectedBed.id, selectedBed.current_hn, ivType, ivDays);
+      onAddIV(selectedBed.id, selectedBed.current_hn, ivType, ivHours, ivStartTime);
       setActiveTab('info');
     }
   };
 
   const submitAddMed = () => {
     if (selectedBed && selectedBed.current_hn) {
-      onAddMed(selectedBed.id, selectedBed.current_hn, medName, medCode, medExpireDate);
+      onAddMed(selectedBed.id, selectedBed.current_hn, medName, medCode, medStartTime, medExpireDate);
       setActiveTab('info');
     }
   };
@@ -115,6 +136,10 @@ const Dashboard: React.FC<DashboardProps> = ({
       }
   };
 
+  // History filtering
+  const getHistoryIVs = (bedId: number) => ivs.filter(i => i.bed_id === bedId && !i.is_active).sort((a,b) => new Date(b.due_at).getTime() - new Date(a.due_at).getTime());
+  const getHistoryMeds = (bedId: number) => meds.filter(m => m.bed_id === bedId && !m.is_active).sort((a,b) => new Date(b.expire_at).getTime() - new Date(a.expire_at).getTime());
+
   return (
     <div className="flex flex-col h-full overflow-hidden bg-transparent">
       {/* Header */}
@@ -129,18 +154,25 @@ const Dashboard: React.FC<DashboardProps> = ({
             <p className="text-xs text-slate-500 font-medium ml-1 mt-1 opacity-80">Ward Monitoring System</p>
         </div>
         
-        <div className={`flex items-center gap-2 text-xs font-bold px-4 py-2 rounded-full border shadow-sm transition-all duration-300 ${isLoading ? 'bg-sky-50 text-sky-600 border-sky-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>
-            {isLoading ? (
-               <>
-                 <RefreshCw size={14} className="animate-spin" />
-                 <span>Saving...</span>
-               </>
-            ) : (
-               <>
-                 <Cloud size={14} />
-                 <span>{t.liveUpdates}</span>
-               </>
-            )}
+        <div className="flex flex-col items-end gap-1">
+          <div className={`flex items-center gap-2 text-xs font-bold px-4 py-2 rounded-full border shadow-sm transition-all duration-300 ${isLoading ? 'bg-sky-50 text-sky-600 border-sky-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>
+              {isLoading ? (
+                 <>
+                   <RefreshCw size={14} className="animate-spin" />
+                   <span>Saving...</span>
+                 </>
+              ) : (
+                 <>
+                   <Cloud size={14} />
+                   <span>{t.liveUpdates}</span>
+                 </>
+              )}
+          </div>
+          {lastUpdated && (
+            <span className="text-[10px] text-slate-400 font-mono font-medium tracking-tight mr-1">
+              {t.lastUpdated}: {lastUpdated.toLocaleTimeString(lang === 'th' ? 'th-TH' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          )}
         </div>
       </header>
 
@@ -173,10 +205,10 @@ const Dashboard: React.FC<DashboardProps> = ({
       {/* Modal - Detail/Action */}
       {showModal && selectedBed && (
         <div className="fixed inset-0 bg-slate-900/20 flex items-center justify-center z-50 backdrop-blur-sm p-4 animate-fade-in-up">
-          <div className="bg-white rounded-[32px] w-full max-w-2xl shadow-2xl overflow-hidden ring-4 ring-white/50">
+          <div className="bg-white rounded-[32px] w-full max-w-2xl shadow-2xl overflow-hidden ring-4 ring-white/50 flex flex-col max-h-[90vh]">
             {/* Modal Header */}
             <div className={`
-                p-6 text-white flex justify-between items-center shadow-md relative overflow-hidden
+                p-6 text-white flex justify-between items-center shadow-md relative overflow-hidden shrink-0
                 ${selectedBed.status === BedStatus.OCCUPIED ? 'bg-gradient-to-r from-sky-400 to-blue-500' : 'bg-gradient-to-r from-emerald-400 to-teal-500'}
             `}>
               <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl"></div>
@@ -196,32 +228,38 @@ const Dashboard: React.FC<DashboardProps> = ({
               </div>
             </div>
 
-            <div className="p-0">
+            <div className="flex flex-col flex-1 overflow-hidden">
               {/* Tabs */}
-              <div className="flex border-b border-slate-100 bg-slate-50/50">
+              <div className="flex border-b border-slate-100 bg-slate-50/50 shrink-0 overflow-x-auto">
                 <button 
                   onClick={() => setActiveTab('info')}
-                  className={`flex-1 py-4 text-sm font-bold tracking-wide transition-all ${activeTab === 'info' ? 'text-slate-800 border-b-2 border-slate-800 bg-white shadow-sm' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100/50'}`}
+                  className={`flex-1 min-w-[80px] py-4 text-sm font-bold tracking-wide transition-all ${activeTab === 'info' ? 'text-slate-800 border-b-2 border-slate-800 bg-white shadow-sm' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100/50'}`}
                 >
                   {t.info}
                 </button>
                 <button 
                   disabled={selectedBed.status === BedStatus.VACANT}
                   onClick={() => setActiveTab('iv')}
-                  className={`flex-1 py-4 text-sm font-bold tracking-wide transition-all ${activeTab === 'iv' ? 'text-sky-600 border-b-2 border-sky-500 bg-sky-50/30' : 'text-slate-400 hover:text-sky-600 hover:bg-sky-50/30 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-400'}`}
+                  className={`flex-1 min-w-[80px] py-4 text-sm font-bold tracking-wide transition-all ${activeTab === 'iv' ? 'text-sky-600 border-b-2 border-sky-500 bg-sky-50/30' : 'text-slate-400 hover:text-sky-600 hover:bg-sky-50/30 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-400'}`}
                 >
                   + {t.addIV}
                 </button>
                 <button 
                   disabled={selectedBed.status === BedStatus.VACANT}
                   onClick={() => setActiveTab('med')}
-                  className={`flex-1 py-4 text-sm font-bold tracking-wide transition-all ${activeTab === 'med' ? 'text-rose-600 border-b-2 border-rose-500 bg-rose-50/30' : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50/30 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-400'}`}
+                  className={`flex-1 min-w-[80px] py-4 text-sm font-bold tracking-wide transition-all ${activeTab === 'med' ? 'text-rose-600 border-b-2 border-rose-500 bg-rose-50/30' : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50/30 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-400'}`}
                 >
                   + {t.addMed}
                 </button>
+                <button 
+                  onClick={() => setActiveTab('history')}
+                  className={`flex-1 min-w-[80px] py-4 text-sm font-bold tracking-wide transition-all ${activeTab === 'history' ? 'text-slate-600 border-b-2 border-slate-500 bg-slate-100' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100/50'}`}
+                >
+                  {t.history}
+                </button>
               </div>
 
-              <div className="p-8 bg-white min-h-[350px]">
+              <div className="p-8 bg-white overflow-y-auto flex-1">
                 {activeTab === 'info' && (
                   <div className="space-y-4 animate-fade-in-up">
                     {selectedBed.status === BedStatus.VACANT ? (
@@ -276,9 +314,16 @@ const Dashboard: React.FC<DashboardProps> = ({
                                 <p className="text-sm text-sky-400/70 italic bg-white/60 p-4 rounded-xl text-center border border-dashed border-sky-200">{t.noItems}</p>
                               ) : (
                                 ivs.filter(i => i.bed_id === selectedBed.id && i.is_active).map(iv => (
-                                  <div key={iv.id} className="text-sm p-3 bg-white rounded-xl border border-sky-100 shadow-sm flex justify-between items-center hover:shadow-md transition-shadow">
-                                    <span className="font-bold text-slate-600">{iv.fluid_type}</span>
-                                    <span className="text-sky-600 font-mono text-xs bg-sky-50 px-2.5 py-1 rounded-md border border-sky-100 font-bold">Due: {new Date(iv.due_at).toLocaleDateString('th-TH')}</span>
+                                  <div key={iv.id} className="text-sm p-3 bg-white rounded-xl border border-sky-100 shadow-sm flex flex-col hover:shadow-md transition-shadow">
+                                    <div className="flex justify-between items-center">
+                                       <span className="font-bold text-slate-600">{iv.fluid_type}</span>
+                                       <span className="text-sky-600 font-mono text-xs bg-sky-50 px-2.5 py-1 rounded-md border border-sky-100 font-bold">
+                                         {t.dueAt} {new Date(iv.due_at).toLocaleDateString('th-TH', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})}
+                                       </span>
+                                    </div>
+                                    <div className="text-xs text-slate-400 mt-1 flex items-center gap-1">
+                                       <Clock size={10} /> {t.startedAt} {new Date(iv.started_at).toLocaleString('th-TH')}
+                                    </div>
                                   </div>
                                 ))
                               )}
@@ -296,9 +341,16 @@ const Dashboard: React.FC<DashboardProps> = ({
                                 <p className="text-sm text-rose-400/70 italic bg-white/60 p-4 rounded-xl text-center border border-dashed border-rose-200">{t.noItems}</p>
                               ) : (
                                 meds.filter(m => m.bed_id === selectedBed.id && m.is_active).map(m => (
-                                  <div key={m.id} className="text-sm p-3 bg-white rounded-xl border border-rose-100 shadow-sm flex justify-between items-center hover:shadow-md transition-shadow">
-                                    <span className="font-bold text-slate-600">{m.med_name} <span className="text-slate-400 font-normal">({m.med_code})</span></span>
-                                    <span className="text-rose-600 font-mono text-xs bg-rose-50 px-2.5 py-1 rounded-md border border-rose-100 font-bold">Exp: {new Date(m.expire_at).toLocaleDateString('th-TH')}</span>
+                                  <div key={m.id} className="text-sm p-3 bg-white rounded-xl border border-rose-100 shadow-sm flex flex-col hover:shadow-md transition-shadow">
+                                    <div className="flex justify-between items-center">
+                                       <span className="font-bold text-slate-600">{m.med_name} <span className="text-slate-400 font-normal">({m.med_code})</span></span>
+                                       <span className="text-rose-600 font-mono text-xs bg-rose-50 px-2.5 py-1 rounded-md border border-rose-100 font-bold">
+                                          {t.expiredAt} {new Date(m.expire_at).toLocaleDateString('th-TH', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})}
+                                       </span>
+                                    </div>
+                                    <div className="text-xs text-slate-400 mt-1 flex items-center gap-1">
+                                       <Clock size={10} /> {t.startedAt} {new Date(m.started_at).toLocaleString('th-TH')}
+                                    </div>
                                   </div>
                                 ))
                               )}
@@ -326,25 +378,41 @@ const Dashboard: React.FC<DashboardProps> = ({
                           onChange={e => setIvType(e.target.value)}
                         />
                       </div>
+                      
+                      {/* NEW: Start Time */}
                       <div>
-                        <label className="block text-xs font-bold text-slate-400 uppercase mb-2 ml-1 tracking-wider">{t.ivDays}</label>
+                         <label className="block text-xs font-bold text-slate-400 uppercase mb-2 ml-1 tracking-wider">{t.ivStartTime}</label>
+                         <input 
+                            type="datetime-local"
+                            className="w-full border-2 border-slate-100 bg-slate-50/50 rounded-2xl p-4 text-sm focus:border-sky-300 focus:ring-4 focus:ring-sky-100 focus:bg-white outline-none transition-all"
+                            value={ivStartTime}
+                            onChange={e => setIvStartTime(e.target.value)}
+                         />
+                      </div>
+
+                      {/* UPDATED: Hours instead of Days Select */}
+                      <div>
+                        <label className="block text-xs font-bold text-slate-400 uppercase mb-2 ml-1 tracking-wider">{t.ivDuration}</label>
                         <div className="relative">
-                          <select 
-                            className="w-full border-2 border-slate-100 bg-slate-50/50 rounded-2xl p-4 text-sm focus:border-sky-300 focus:ring-4 focus:ring-sky-100 focus:bg-white outline-none appearance-none transition-all"
-                            value={ivDays}
-                            onChange={e => setIvDays(Number(e.target.value))}
-                          >
-                            <option value={1}>1 {t.daysUnit}</option>
-                            <option value={3}>3 {t.daysUnit}</option>
-                            <option value={7}>7 {t.daysUnit}</option>
-                            <option value={14}>14 {t.daysUnit}</option>
-                          </select>
-                          <div className="absolute right-4 top-4 pointer-events-none text-slate-400">▼</div>
+                          <input 
+                            type="number"
+                            min="1"
+                            className="w-full border-2 border-slate-100 bg-slate-50/50 rounded-2xl p-4 text-sm focus:border-sky-300 focus:ring-4 focus:ring-sky-100 focus:bg-white outline-none transition-all"
+                            value={ivHours}
+                            onChange={e => setIvHours(Number(e.target.value))}
+                          />
+                          <span className="absolute right-6 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-bold">{t.hoursUnit}</span>
+                        </div>
+                        <div className="flex gap-2 mt-2">
+                           <button onClick={() => setIvHours(24)} className="text-xs bg-slate-100 hover:bg-sky-100 text-slate-600 px-3 py-1 rounded-lg">1 Day</button>
+                           <button onClick={() => setIvHours(72)} className="text-xs bg-slate-100 hover:bg-sky-100 text-slate-600 px-3 py-1 rounded-lg">3 Days</button>
+                           <button onClick={() => setIvHours(168)} className="text-xs bg-slate-100 hover:bg-sky-100 text-slate-600 px-3 py-1 rounded-lg">7 Days</button>
                         </div>
                       </div>
+
                       <button 
                         onClick={submitAddIV}
-                        disabled={!ivType}
+                        disabled={!ivType || !ivStartTime}
                         className="w-full bg-sky-500 text-white py-4 rounded-2xl font-bold hover:bg-sky-600 disabled:opacity-50 shadow-xl shadow-sky-200 transition-all transform active:scale-95 mt-4"
                       >
                         {t.save}
@@ -369,6 +437,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                           onChange={e => setMedName(e.target.value)}
                         />
                       </div>
+                      
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="block text-xs font-bold text-slate-400 uppercase mb-2 ml-1 tracking-wider">{t.medCode}</label>
@@ -379,7 +448,19 @@ const Dashboard: React.FC<DashboardProps> = ({
                             onChange={e => setMedCode(e.target.value)}
                             />
                         </div>
+                        {/* NEW: Start Time */}
                         <div>
+                            <label className="block text-xs font-bold text-slate-400 uppercase mb-2 ml-1 tracking-wider">{t.medStartTime}</label>
+                            <input 
+                            type="datetime-local"
+                            className="w-full border-2 border-slate-100 bg-slate-50/50 rounded-2xl p-4 text-sm focus:border-rose-300 focus:ring-4 focus:ring-rose-100 focus:bg-white outline-none transition-all"
+                            value={medStartTime}
+                            onChange={e => setMedStartTime(e.target.value)}
+                            />
+                        </div>
+                      </div>
+                      
+                      <div>
                             <label className="block text-xs font-bold text-slate-400 uppercase mb-2 ml-1 tracking-wider">{t.expireDate}</label>
                             <input 
                             type="datetime-local"
@@ -387,17 +468,84 @@ const Dashboard: React.FC<DashboardProps> = ({
                             value={medExpireDate}
                             onChange={e => setMedExpireDate(e.target.value)}
                             />
-                        </div>
                       </div>
                       
                       <button 
                         onClick={submitAddMed}
-                        disabled={!medName || !medExpireDate}
+                        disabled={!medName || !medExpireDate || !medStartTime}
                         className="w-full bg-rose-500 text-white py-4 rounded-2xl font-bold hover:bg-rose-600 disabled:opacity-50 shadow-xl shadow-rose-200 transition-all transform active:scale-95 mt-4"
                       >
                         {t.save}
                       </button>
                     </div>
+                  </div>
+                )}
+                
+                {/* NEW: History Tab */}
+                {activeTab === 'history' && (
+                  <div className="space-y-6 animate-fade-in-up">
+                     <div className="flex items-center gap-3 mb-2">
+                        <div className="bg-slate-100 p-3 rounded-full text-slate-600"><History size={24}/></div>
+                        <h4 className="font-bold text-slate-700 text-xl">{t.history}</h4>
+                    </div>
+
+                    {getHistoryIVs(selectedBed.id).length === 0 && getHistoryMeds(selectedBed.id).length === 0 ? (
+                        <div className="text-center py-12 text-slate-400 border-2 border-dashed border-slate-100 rounded-2xl">
+                            {t.noHistory}
+                        </div>
+                    ) : (
+                        <div className="space-y-6">
+                            {getHistoryIVs(selectedBed.id).length > 0 && (
+                                <div>
+                                    <h5 className="font-bold text-sky-800 mb-3 text-sm uppercase tracking-wider">{t.activeIVs} (Old)</h5>
+                                    <div className="space-y-2">
+                                        {getHistoryIVs(selectedBed.id).map(iv => (
+                                            <div key={iv.id} className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex justify-between items-center opacity-75 hover:opacity-100 transition-opacity">
+                                                <div>
+                                                    <div className="flex items-center gap-2 mb-1">
+                                                        <span className="font-bold text-slate-700 text-sm">{iv.fluid_type}</span>
+                                                        <span className="text-[10px] font-mono text-sky-600 bg-sky-100 px-1.5 py-0.5 rounded border border-sky-200">
+                                                            HN: {iv.hn}
+                                                        </span>
+                                                    </div>
+                                                    <div className="text-[10px] text-slate-500 flex flex-col gap-0.5">
+                                                        <span>Start: {new Date(iv.started_at).toLocaleString('th-TH')}</span>
+                                                        <span>End: {new Date(iv.due_at).toLocaleString('th-TH')}</span>
+                                                    </div>
+                                                </div>
+                                                <div className="text-xs font-bold text-slate-400 bg-white px-2 py-1 rounded border shadow-sm">Finished</div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                             {getHistoryMeds(selectedBed.id).length > 0 && (
+                                <div>
+                                    <h5 className="font-bold text-rose-800 mb-3 text-sm uppercase tracking-wider">{t.activeMeds} (Old)</h5>
+                                    <div className="space-y-2">
+                                        {getHistoryMeds(selectedBed.id).map(m => (
+                                            <div key={m.id} className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex justify-between items-center opacity-75 hover:opacity-100 transition-opacity">
+                                                <div>
+                                                     <div className="flex items-center gap-2 mb-1">
+                                                        <span className="font-bold text-slate-700 text-sm">{m.med_name}</span>
+                                                        <span className="text-[10px] font-mono text-rose-600 bg-rose-100 px-1.5 py-0.5 rounded border border-rose-200">
+                                                            HN: {m.hn}
+                                                        </span>
+                                                    </div>
+                                                    <div className="text-[10px] text-slate-500 flex flex-col gap-0.5">
+                                                        <span>Start: {new Date(m.started_at).toLocaleString('th-TH')}</span>
+                                                        <span>Exp: {new Date(m.expire_at).toLocaleString('th-TH')}</span>
+                                                    </div>
+                                                </div>
+                                                <div className="text-xs font-bold text-slate-400 bg-white px-2 py-1 rounded border shadow-sm">Expired</div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
                   </div>
                 )}
                 

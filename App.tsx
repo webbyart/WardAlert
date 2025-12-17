@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import Dashboard from './components/Dashboard';
 import NotificationPage from './components/NotificationPage';
@@ -16,6 +17,9 @@ const App: React.FC = () => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false); // New state for saving indicator
+  
+  // Track last update time
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   
   // Settings State
   const [lang, setLang] = useState<Language>('th');
@@ -39,6 +43,7 @@ const App: React.FC = () => {
         setIvs(data.ivs || []);
         setMeds(data.meds || []);
         setNotifications(data.notifications || []);
+        setLastUpdated(new Date());
       }
       setIsLoading(false);
     };
@@ -78,7 +83,10 @@ const App: React.FC = () => {
     try {
       await action();
     } finally {
-      setTimeout(() => setIsSyncing(false), 800); // Keep showing for a moment
+      setTimeout(() => {
+        setIsSyncing(false);
+        setLastUpdated(new Date());
+      }, 800); // Keep showing for a moment
     }
   };
 
@@ -126,14 +134,16 @@ const App: React.FC = () => {
     });
   };
 
-  const handleAddIV = (bedId: number, hn: string, type: string, days: number) => {
-    const now = new Date();
-    const due = new Date(now.getTime() + (days * 24 * 60 * 60 * 1000));
+  const handleAddIV = (bedId: number, hn: string, type: string, hours: number, startTime: string) => {
+    const start = new Date(startTime);
+    // Calculate Due date based on Start time + Hours
+    const due = new Date(start.getTime() + (hours * 60 * 60 * 1000));
+    
     const newIV: IVFluid = {
       id: Date.now(),
       hn,
       bed_id: bedId,
-      started_at: now.toISOString(),
+      started_at: start.toISOString(),
       due_at: due.toISOString(),
       fluid_type: type,
       is_active: true
@@ -143,12 +153,12 @@ const App: React.FC = () => {
     performSync(() => syncToSheet('IVs', 'create', newIV));
   };
 
-  const handleAddMed = (bedId: number, hn: string, name: string, code: string, expireDate: string) => {
+  const handleAddMed = (bedId: number, hn: string, name: string, code: string, startTime: string, expireDate: string) => {
     const newMed: HighRiskMed = {
       id: Date.now(),
       hn,
       bed_id: bedId,
-      started_at: new Date().toISOString(),
+      started_at: new Date(startTime).toISOString(),
       expire_at: new Date(expireDate).toISOString(),
       med_code: code,
       med_name: name,
@@ -242,6 +252,7 @@ const App: React.FC = () => {
             onUpdateBed={handleUpdateBed}
             onDeleteBed={handleDeleteBed}
             isLoading={isLoading || isSyncing}
+            lastUpdated={lastUpdated}
             lang={lang}
           />
         ) : (

@@ -1,3 +1,4 @@
+
 import { Notification, NotificationType } from '../types';
 
 // The specific Web App URL provided for this project
@@ -124,15 +125,20 @@ export const sendLineAlertToScript = async (notification: Notification) => {
 
   const isIV = notification.type === NotificationType.IV_ALERT;
   
+  // Format dates for friendly display
+  const targetDate = new Date(notification.payload.target_date);
+  const dateStr = targetDate.toLocaleDateString('th-TH');
+  const timeStr = targetDate.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+
   const linePayload = {
-    title: isIV ? 'IV Fluid Alert' : 'High-Risk Med Alert',
-    color: isIV ? '#3b82f6' : '#e11d48', 
+    title: isIV ? '⚠️ แจ้งเตือนสารน้ำ (IV Alert)' : '⚠️ แจ้งเตือนยาความเสี่ยงสูง (High Risk Med)',
+    color: isIV ? '#0284c7' : '#e11d48', // Sky-600 vs Rose-600
     message: notification.payload.message,
     hn: notification.hn,
     bed: notification.bed_id,
     detail: isIV 
-      ? `Due: ${new Date(notification.payload.target_date).toLocaleString('th-TH')}` 
-      : `Expire: ${new Date(notification.payload.target_date).toLocaleString('th-TH')}`
+      ? `ครบกำหนด: ${dateStr} เวลา ${timeStr}` 
+      : `หมดฤทธิ์: ${dateStr} เวลา ${timeStr}`
   };
 
   try {
