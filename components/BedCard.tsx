@@ -1,17 +1,18 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import { Bed, BedStatus } from '../types';
-import { User, Bed as BedIcon, AlertCircle, Plus } from 'lucide-react';
+import { User, Bed as BedIcon, AlertCircle, Plus, Users } from 'lucide-react';
 import { Language, translations } from '../utils/translations';
 
 interface BedCardProps {
   bed: Bed;
+  historyCount: number; // New prop for patient count
   onClick: (bed: Bed) => void;
   hasAlert: boolean;
   lang: Language;
 }
 
-const BedCard: React.FC<BedCardProps> = ({ bed, onClick, hasAlert, lang }) => {
+const BedCard: React.FC<BedCardProps> = ({ bed, historyCount, onClick, hasAlert, lang }) => {
   const isOccupied = bed.status === BedStatus.OCCUPIED;
   const t = translations[lang];
 
@@ -24,9 +25,8 @@ const BedCard: React.FC<BedCardProps> = ({ bed, onClick, hasAlert, lang }) => {
     // Check if meaningful data changed
     if (prevStatus.current !== bed.status || prevHn.current !== bed.current_hn) {
        setIsUpdating(true);
-       const timer = setTimeout(() => setIsUpdating(false), 2000); // 2 second flash
+       const timer = setTimeout(() => setIsUpdating(false), 2000); 
        
-       // Update refs
        prevStatus.current = bed.status;
        prevHn.current = bed.current_hn;
        
@@ -39,7 +39,7 @@ const BedCard: React.FC<BedCardProps> = ({ bed, onClick, hasAlert, lang }) => {
       onClick={() => onClick(bed)}
       className={`
         relative overflow-hidden rounded-[24px] cursor-pointer transition-all duration-500 group
-        border-[1.5px] shadow-sm hover:shadow-xl hover:-translate-y-1
+        border-[1.5px] shadow-sm hover:shadow-xl hover:-translate-y-1 flex flex-col justify-between
         ${isOccupied 
           ? 'bg-gradient-to-br from-sky-50 to-white border-sky-100 hover:border-sky-300 hover:shadow-sky-100/60' 
           : 'bg-gradient-to-br from-emerald-50 to-white border-emerald-100 hover:border-emerald-300 hover:shadow-emerald-100/60'
@@ -49,7 +49,7 @@ const BedCard: React.FC<BedCardProps> = ({ bed, onClick, hasAlert, lang }) => {
         ${isUpdating && !isOccupied ? 'ring-emerald-300' : ''}
       `}
     >
-      {/* Update Badge (Temporary) */}
+      {/* Update Badge */}
       {isUpdating && (
         <span className="absolute top-2 left-1/2 -translate-x-1/2 z-20 text-[9px] font-bold bg-amber-400 text-white px-2 py-0.5 rounded-full shadow-sm animate-pulse">
             UPDATED
@@ -73,8 +73,8 @@ const BedCard: React.FC<BedCardProps> = ({ bed, onClick, hasAlert, lang }) => {
         )}
       </div>
 
-      {/* Main Content Area with Stylized Bed */}
-      <div className="flex flex-col items-center justify-center pt-2 pb-6 px-4 relative h-36">
+      {/* Main Content Area */}
+      <div className="flex flex-col items-center justify-center py-4 px-4 relative flex-1 min-h-[140px]">
         
         {/* Background Blob */}
         <div className={`
@@ -82,15 +82,13 @@ const BedCard: React.FC<BedCardProps> = ({ bed, onClick, hasAlert, lang }) => {
           ${isOccupied ? 'bg-sky-200' : 'bg-emerald-200'}
         `}></div>
 
-        {/* Beautiful Bed Visualization */}
-        <div className="relative z-10 mt-2 group-hover:scale-105 transition-transform duration-300">
+        {/* Bed Icon */}
+        <div className="relative z-10 group-hover:scale-105 transition-transform duration-300 mb-2">
            {isOccupied ? (
              <div className="relative">
-                {/* Bed Frame */}
                 <div className="bg-sky-100 p-3 rounded-2xl border-2 border-sky-200 shadow-sm relative">
                    <BedIcon size={40} className="text-sky-400" strokeWidth={1.5} />
                 </div>
-                {/* Patient Overlay */}
                 <div className="absolute -right-2 -top-2 bg-white p-1.5 rounded-full border-2 border-sky-100 shadow-md animate-fade-in-up">
                    <div className="bg-sky-500 rounded-full p-1">
                       <User size={16} className="text-white" />
@@ -112,7 +110,7 @@ const BedCard: React.FC<BedCardProps> = ({ bed, onClick, hasAlert, lang }) => {
         </div>
 
         {/* Text Info */}
-        <div className="mt-4 text-center z-10">
+        <div className="text-center z-10">
           {isOccupied ? (
             <>
               <div className="font-mono font-bold text-lg text-slate-700 tracking-tight leading-none animate-fade-in-up">{bed.current_hn}</div>
@@ -127,8 +125,17 @@ const BedCard: React.FC<BedCardProps> = ({ bed, onClick, hasAlert, lang }) => {
 
       </div>
       
+      {/* Footer: History Stats (Bed-Centric) */}
+      <div className={`
+        px-4 py-2 text-[10px] font-medium border-t flex items-center justify-center gap-1
+        ${isOccupied ? 'bg-sky-50/50 border-sky-100 text-sky-600' : 'bg-emerald-50/50 border-emerald-100 text-emerald-600'}
+      `}>
+         <Users size={12} />
+         <span>{historyCount} Patients History</span>
+      </div>
+
       {/* Decorative Bottom Bar */}
-      <div className={`h-1.5 w-full transition-colors duration-500 ${isOccupied ? 'bg-sky-400' : 'bg-emerald-400/50'}`}></div>
+      <div className={`h-1 w-full transition-colors duration-500 ${isOccupied ? 'bg-sky-400' : 'bg-emerald-400/50'}`}></div>
     </div>
   );
 };
