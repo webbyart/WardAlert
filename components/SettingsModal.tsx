@@ -1,9 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
-import { testConnection, sendLineAlertToScript, triggerSetup, seedDatabase } from '../services/googleScriptApi';
+import { testConnection, sendLineAlertToScript, triggerSetup, seedDatabase, fetchInitialData } from '../services/googleScriptApi';
 import { Language, translations } from '../utils/translations';
 import { NotificationType } from '../types';
-import { Settings, CheckCircle, AlertCircle, Send, Database, FileSpreadsheet, Copy, Code, Server, CloudLightning, ShieldCheck } from 'lucide-react';
+import { Settings, CheckCircle, AlertCircle, Send, Database, FileSpreadsheet, Copy, Code, Server, CloudLightning, ShieldCheck, RefreshCw } from 'lucide-react';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -14,6 +14,7 @@ interface SettingsModalProps {
 // THE FIXED GOOGLE APPS SCRIPT CODE TO DISPLAY
 const GOOGLE_APPS_SCRIPT_CODE = `
 // *** COPY THIS CODE TO GOOGLE APPS SCRIPT ***
+// Version: 2.0 (With History Logs)
 
 const LINE_TOKEN = 'YOUR_LINE_TOKEN_HERE'; 
 const LINE_GROUP_ID = 'YOUR_GROUP_ID_HERE';
@@ -199,13 +200,32 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, lang }) 
   const [status, setStatus] = useState<'idle' | 'success' | 'error' | 'loading'>('idle');
   const [msg, setMsg] = useState('');
   const [showCode, setShowCode] = useState(false);
+  const [scriptVersionStatus, setScriptVersionStatus] = useState<'unknown' | 'ok' | 'outdated'>('unknown');
 
   useEffect(() => {
     if (isOpen) {
       setStatus('idle');
       setMsg('');
+      checkScriptVersion();
     }
   }, [isOpen]);
+
+  const checkScriptVersion = async () => {
+      try {
+          const data = await fetchInitialData();
+          if (data) {
+             // Check if 'logs' array exists in the response
+             if (Array.isArray(data.logs)) {
+                 setScriptVersionStatus('ok');
+             } else {
+                 setScriptVersionStatus('outdated');
+                 setShowCode(true); // Auto open code if outdated
+             }
+          }
+      } catch (e) {
+          console.error(e);
+      }
+  };
 
   const handleTestConnection = async () => {
     setStatus('loading');
@@ -215,6 +235,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, lang }) 
       if (res) {
         setStatus('success');
         setMsg('Connection Successful!');
+        checkScriptVersion(); // Re-check version on test
       } else {
         throw new Error('Failed');
       }
@@ -297,24 +318,38 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, lang }) 
         <div className="p-6 overflow-y-auto custom-scrollbar space-y-8 flex-1">
           
           {/* Connection Info */}
-          <div className="bg-sky-50 border border-sky-100 p-4 rounded-xl flex items-start gap-3">
-             <ShieldCheck className="text-sky-500 shrink-0 mt-0.5" size={20} />
-             <div>
-                <h4 className="font-bold text-sky-900 text-sm mb-1">Secure Connection Active</h4>
-                <p className="text-xs text-sky-700 leading-relaxed">
-                   The system is permanently connected to the designated Google Sheet. Data is synchronized automatically.
-                </p>
-             </div>
-          </div>
-          
-          <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl flex items-start gap-3">
-             <AlertCircle className="text-amber-500 shrink-0 mt-0.5" size={20} />
-             <div>
-                <h4 className="font-bold text-amber-900 text-sm mb-1">Important Update</h4>
-                <p className="text-xs text-amber-800 leading-relaxed">
-                   For the "History Log" feature to work, you must update your Google Apps Script code with the new version below (it adds a "Logs" table).
-                </p>
-             </div>
+          <div className="flex gap-4 flex-col md:flex-row">
+            <div className="bg-sky-50 border border-sky-100 p-4 rounded-xl flex items-start gap-3 flex-1">
+                <ShieldCheck className="text-sky-500 shrink-0 mt-0.5" size={20} />
+                <div>
+                    <h4 className="font-bold text-sky-900 text-sm mb-1">Connection Active</h4>
+                    <p className="text-xs text-sky-700 leading-relaxed">
+                    System connected to database.
+                    </p>
+                </div>
+            </div>
+
+            {/* Script Status Indicator */}
+            <div className={`border p-4 rounded-xl flex items-start gap-3 flex-1 transition-all
+                ${scriptVersionStatus === 'outdated' ? 'bg-amber-50 border-amber-200' : 'bg-emerald-50 border-emerald-100'}
+            `}>
+                {scriptVersionStatus === 'outdated' ? (
+                     <AlertCircle className="text-amber-500 shrink-0 mt-0.5" size={20} />
+                ) : (
+                     <CheckCircle className="text-emerald-500 shrink-0 mt-0.5" size={20} />
+                )}
+                <div>
+                    <h4 className={`font-bold text-sm mb-1 ${scriptVersionStatus === 'outdated' ? 'text-amber-900' : 'text-emerald-900'}`}>
+                        {scriptVersionStatus === 'outdated' ? 'Update Required' : 'Script Healthy'}
+                    </h4>
+                    <p className={`text-xs leading-relaxed ${scriptVersionStatus === 'outdated' ? 'text-amber-800' : 'text-emerald-700'}`}>
+                        {scriptVersionStatus === 'outdated' 
+                            ? 'Your Google Script is missing the "Logs" feature. Please update code below.' 
+                            : 'Google Apps Script is up to date.'
+                        }
+                    </p>
+                </div>
+            </div>
           </div>
 
           {/* Action Grid */}
@@ -328,7 +363,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, lang }) 
                 <div className="bg-indigo-100 p-2 rounded-lg text-indigo-600 group-hover:scale-110 transition-transform"><CloudLightning size={20}/></div>
                 <span className="font-bold text-indigo-900">{t.testConn}</span>
               </div>
-              <p className="text-xs text-indigo-400">Ping the server to check availability</p>
+              <p className="text-xs text-indigo-400">Ping server & Check version</p>
             </button>
 
             {/* Test LINE */}
@@ -340,7 +375,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, lang }) 
                 <div className="bg-green-100 p-2 rounded-lg text-green-600 group-hover:scale-110 transition-transform"><Send size={20}/></div>
                 <span className="font-bold text-green-900">{t.testLine}</span>
               </div>
-              <p className="text-xs text-green-400">Send a dummy alert to LINE Group</p>
+              <p className="text-xs text-green-400">Send dummy alert</p>
             </button>
 
             {/* Setup Sheet */}
@@ -352,7 +387,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, lang }) 
                 <div className="bg-amber-100 p-2 rounded-lg text-amber-600 group-hover:scale-110 transition-transform"><FileSpreadsheet size={20}/></div>
                 <span className="font-bold text-amber-900">{t.setupSheet}</span>
               </div>
-              <p className="text-xs text-amber-400">Initialize columns in empty sheet</p>
+              <p className="text-xs text-amber-400">Initialize columns (incl. Logs)</p>
             </button>
 
             {/* Seed Data */}
@@ -364,7 +399,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, lang }) 
                 <div className="bg-pink-100 p-2 rounded-lg text-pink-600 group-hover:scale-110 transition-transform"><Server size={20}/></div>
                 <span className="font-bold text-pink-900">{t.seedData}</span>
               </div>
-              <p className="text-xs text-pink-400">Populate sheet with sample data</p>
+              <p className="text-xs text-pink-400">Add sample data</p>
             </button>
           </div>
 

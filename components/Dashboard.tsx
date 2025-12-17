@@ -1,9 +1,9 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Bed, IVFluid, HighRiskMed, Notification, BedStatus, LogEntry } from '../types';
 import BedCard from './BedCard';
 import HistoryModal from './HistoryModal';
-import { UserPlus, Trash2, Droplet, Pill, RefreshCw, Activity, Plus, Settings, Save, X, Cloud, Clock, History } from 'lucide-react';
+import { UserPlus, Trash2, Droplet, Pill, RefreshCw, Activity, Plus, Settings, Save, X, Cloud, Clock, History, User, FileText } from 'lucide-react';
 import { Language, translations } from '../utils/translations';
 
 interface DashboardProps {
@@ -140,9 +140,67 @@ const Dashboard: React.FC<DashboardProps> = ({
       }
   };
 
-  // History filtering
-  const getHistoryIVs = (bedId: number) => ivs.filter(i => i.bed_id === bedId && !i.is_active).sort((a,b) => new Date(b.due_at).getTime() - new Date(a.due_at).getTime());
-  const getHistoryMeds = (bedId: number) => meds.filter(m => m.bed_id === bedId && !m.is_active).sort((a,b) => new Date(b.expire_at).getTime() - new Date(a.expire_at).getTime());
+  // --- Logic to Group History by Patient (HN) ---
+  const patientHistory = useMemo(() => {
+    if (!selectedBed) return [];
+
+    // 1. Filter Logs for this Bed
+    // We assume the log details contain "Bed X" or "Bed #X" or "เตียง X"
+    const bedLogs = logs.filter(l => 
+        l.details.includes(`Bed ${selectedBed.bed_number}`) || 
+        l.details.includes(`Bed #${selectedBed.bed_number}`) ||
+        l.details.includes(`เตียง ${selectedBed.bed_number}`)
+    );
+
+    // 2. Identify all Unique HNs from Logs, IVs, Meds associated with this bed
+    const itemHns = new Set<string>();
+    
+    // Check IVs (Active & Inactive)
+    ivs.filter(i => i.bed_id === selectedBed.id).forEach(i => itemHns.add(i.hn));
+    // Check Meds (Active & Inactive)
+    meds.filter(m => m.bed_id === selectedBed.id).forEach(m => itemHns.add(m.hn));
+    // Check Logs (Extract HN via Regex)
+    const hnRegex = /(?:HN|HN:)\s*([A-Za-z0-9-]+)/i;
+    bedLogs.forEach(l => {
+        const match = l.details.match(hnRegex);
+        if (match && match[1]) itemHns.add(match[1]);
+    });
+
+    // 3. Build Grouped History Object
+    const groups: { hn: string, items: any[], lastActivity: number }[] = [];
+
+    itemHns.forEach(hn => {
+        const items = [];
+        
+        // Add relevant Logs
+        bedLogs.forEach(l => {
+             if (l.details.includes(hn)) {
+                 items.push({ type: 'LOG', data: l, time: new Date(l.timestamp).getTime() });
+             }
+        });
+
+        // Add IVs
+        ivs.filter(i => i.bed_id === selectedBed.id && i.hn === hn).forEach(i => {
+             items.push({ type: 'IV', data: i, time: new Date(i.started_at).getTime() });
+        });
+
+        // Add Meds
+        meds.filter(m => m.bed_id === selectedBed.id && m.hn === hn).forEach(m => {
+             items.push({ type: 'MED', data: m, time: new Date(m.started_at).getTime() });
+        });
+
+        if (items.length > 0) {
+            items.sort((a, b) => b.time - a.time); // Newest items first inside the group
+            const lastActivity = items[0].time;
+            groups.push({ hn, items, lastActivity });
+        }
+    });
+
+    // Sort groups by their most recent activity
+    return groups.sort((a, b) => b.lastActivity - a.lastActivity);
+
+  }, [selectedBed, logs, ivs, meds]);
+
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-transparent">
@@ -511,69 +569,76 @@ const Dashboard: React.FC<DashboardProps> = ({
                   </div>
                 )}
                 
-                {/* NEW: History Tab */}
+                {/* NEW: Patient-Centric History Tab */}
                 {activeTab === 'history' && (
                   <div className="space-y-6 animate-fade-in-up">
                      <div className="flex items-center gap-3 mb-2">
                         <div className="bg-slate-100 p-3 rounded-full text-slate-600"><History size={24}/></div>
                         <h4 className="font-bold text-slate-700 text-xl">{t.history}</h4>
                     </div>
-
-                    {getHistoryIVs(selectedBed.id).length === 0 && getHistoryMeds(selectedBed.id).length === 0 ? (
+                    
+                    {patientHistory.length === 0 ? (
                         <div className="text-center py-12 text-slate-400 border-2 border-dashed border-slate-100 rounded-2xl">
                             {t.noHistory}
                         </div>
                     ) : (
-                        <div className="space-y-6">
-                            {getHistoryIVs(selectedBed.id).length > 0 && (
-                                <div>
-                                    <h5 className="font-bold text-sky-800 mb-3 text-sm uppercase tracking-wider">{t.activeIVs} (Old)</h5>
-                                    <div className="space-y-2">
-                                        {getHistoryIVs(selectedBed.id).map(iv => (
-                                            <div key={iv.id} className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex justify-between items-center opacity-75 hover:opacity-100 transition-opacity">
-                                                <div>
-                                                    <div className="flex items-center gap-2 mb-1">
-                                                        <span className="font-bold text-slate-700 text-sm">{iv.fluid_type}</span>
-                                                        <span className="text-[10px] font-mono text-sky-600 bg-sky-100 px-1.5 py-0.5 rounded border border-sky-200">
-                                                            HN: {iv.hn}
-                                                        </span>
-                                                    </div>
-                                                    <div className="text-[10px] text-slate-500 flex flex-col gap-0.5">
-                                                        <span>Start: {new Date(iv.started_at).toLocaleString('th-TH')}</span>
-                                                        <span>End: {new Date(iv.due_at).toLocaleString('th-TH')}</span>
-                                                    </div>
-                                                </div>
-                                                <div className="text-xs font-bold text-slate-400 bg-white px-2 py-1 rounded border shadow-sm">Finished</div>
-                                            </div>
-                                        ))}
+                        <div className="space-y-8">
+                            {patientHistory.map(group => (
+                                <div key={group.hn} className="relative">
+                                    {/* Patient Header */}
+                                    <div className="flex items-center gap-3 mb-4 sticky top-0 bg-white/95 backdrop-blur py-2 z-10 border-b border-slate-100">
+                                        <div className="bg-emerald-100 p-2 rounded-full text-emerald-600">
+                                            <User size={18} />
+                                        </div>
+                                        <div>
+                                            <div className="font-bold text-slate-800 text-lg">HN: {group.hn}</div>
+                                            <div className="text-[10px] text-slate-400 font-mono">Last activity: {new Date(group.lastActivity).toLocaleDateString('th-TH')}</div>
+                                        </div>
                                     </div>
-                                </div>
-                            )}
 
-                             {getHistoryMeds(selectedBed.id).length > 0 && (
-                                <div>
-                                    <h5 className="font-bold text-rose-800 mb-3 text-sm uppercase tracking-wider">{t.activeMeds} (Old)</h5>
-                                    <div className="space-y-2">
-                                        {getHistoryMeds(selectedBed.id).map(m => (
-                                            <div key={m.id} className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex justify-between items-center opacity-75 hover:opacity-100 transition-opacity">
-                                                <div>
-                                                     <div className="flex items-center gap-2 mb-1">
-                                                        <span className="font-bold text-slate-700 text-sm">{m.med_name}</span>
-                                                        <span className="text-[10px] font-mono text-rose-600 bg-rose-100 px-1.5 py-0.5 rounded border border-rose-200">
-                                                            HN: {m.hn}
+                                    {/* Timeline Items */}
+                                    <div className="ml-4 pl-6 border-l-2 border-slate-200 space-y-4">
+                                        {group.items.map((item, idx) => (
+                                            <div key={idx} className="relative group">
+                                                {/* Timeline Dot */}
+                                                <div className={`absolute -left-[29px] top-2 w-3 h-3 rounded-full border-2 border-white shadow-sm z-10
+                                                    ${item.type === 'IV' ? 'bg-sky-400' : item.type === 'MED' ? 'bg-rose-400' : 'bg-slate-400'}
+                                                `}></div>
+
+                                                <div className={`p-3 rounded-xl border shadow-sm flex flex-col gap-1 transition-all hover:scale-[1.01]
+                                                    ${item.type === 'IV' ? 'bg-sky-50/50 border-sky-100' : 
+                                                      item.type === 'MED' ? 'bg-rose-50/50 border-rose-100' : 
+                                                      'bg-white border-slate-100'}
+                                                `}>
+                                                    <div className="flex justify-between items-start">
+                                                        <div className="flex items-center gap-2">
+                                                            {item.type === 'IV' && <Droplet size={14} className="text-sky-500" />}
+                                                            {item.type === 'MED' && <Pill size={14} className="text-rose-500" />}
+                                                            {item.type === 'LOG' && <FileText size={14} className="text-slate-500" />}
+                                                            
+                                                            <span className="font-bold text-sm text-slate-700">
+                                                                {item.type === 'IV' ? item.data.fluid_type : 
+                                                                 item.type === 'MED' ? item.data.med_name : 
+                                                                 item.data.action_type.replace('_', ' ')}
+                                                            </span>
+                                                        </div>
+                                                        <span className="text-[10px] text-slate-400 font-mono">
+                                                            {new Date(item.time).toLocaleString('th-TH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'})}
                                                         </span>
                                                     </div>
-                                                    <div className="text-[10px] text-slate-500 flex flex-col gap-0.5">
-                                                        <span>Start: {new Date(m.started_at).toLocaleString('th-TH')}</span>
-                                                        <span>Exp: {new Date(m.expire_at).toLocaleString('th-TH')}</span>
+                                                    
+                                                    {/* Details */}
+                                                    <div className="text-xs text-slate-500 pl-6">
+                                                        {item.type === 'IV' && `Start: ${new Date(item.data.started_at).toLocaleTimeString('th-TH')} -> Due: ${new Date(item.data.due_at).toLocaleTimeString('th-TH')}`}
+                                                        {item.type === 'MED' && `Start: ${new Date(item.data.started_at).toLocaleTimeString('th-TH')} -> Exp: ${new Date(item.data.expire_at).toLocaleTimeString('th-TH')}`}
+                                                        {item.type === 'LOG' && item.data.details}
                                                     </div>
                                                 </div>
-                                                <div className="text-xs font-bold text-slate-400 bg-white px-2 py-1 rounded border shadow-sm">Expired</div>
                                             </div>
                                         ))}
                                     </div>
                                 </div>
-                            )}
+                            ))}
                         </div>
                     )}
                   </div>

@@ -2,7 +2,7 @@
 import { Notification, NotificationType } from '../types';
 
 // *** CONSTANT: The Specific Web App URL provided ***
-const FIXED_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx7k__DGVgZ_xBbLezmvtMRIP1RxuS1hzu1bN9mL44MkycThm8CsK5KWUF8EeipEcou/exec';
+const FIXED_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbywR4vhM6yRM1n-jMxxddPyyaG0okNq_SvC4T7_wBjAPSAael4Wwpw9Zni7gu4uGjDR/exec';
 
 export const saveScriptUrl = (url: string) => {
   // Deprecated: URL is now fixed.

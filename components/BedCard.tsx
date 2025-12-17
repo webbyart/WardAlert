@@ -1,4 +1,5 @@
-import React from 'react';
+
+import React, { useEffect, useState, useRef } from 'react';
 import { Bed, BedStatus } from '../types';
 import { User, Bed as BedIcon, AlertCircle, Plus } from 'lucide-react';
 import { Language, translations } from '../utils/translations';
@@ -14,22 +15,51 @@ const BedCard: React.FC<BedCardProps> = ({ bed, onClick, hasAlert, lang }) => {
   const isOccupied = bed.status === BedStatus.OCCUPIED;
   const t = translations[lang];
 
+  // State for update animation
+  const [isUpdating, setIsUpdating] = useState(false);
+  const prevStatus = useRef(bed.status);
+  const prevHn = useRef(bed.current_hn);
+
+  useEffect(() => {
+    // Check if meaningful data changed
+    if (prevStatus.current !== bed.status || prevHn.current !== bed.current_hn) {
+       setIsUpdating(true);
+       const timer = setTimeout(() => setIsUpdating(false), 2000); // 2 second flash
+       
+       // Update refs
+       prevStatus.current = bed.status;
+       prevHn.current = bed.current_hn;
+       
+       return () => clearTimeout(timer);
+    }
+  }, [bed.status, bed.current_hn]);
+
   return (
     <div
       onClick={() => onClick(bed)}
       className={`
-        relative overflow-hidden rounded-[24px] cursor-pointer transition-all duration-300 group
+        relative overflow-hidden rounded-[24px] cursor-pointer transition-all duration-500 group
         border-[1.5px] shadow-sm hover:shadow-xl hover:-translate-y-1
         ${isOccupied 
           ? 'bg-gradient-to-br from-sky-50 to-white border-sky-100 hover:border-sky-300 hover:shadow-sky-100/60' 
           : 'bg-gradient-to-br from-emerald-50 to-white border-emerald-100 hover:border-emerald-300 hover:shadow-emerald-100/60'
         }
+        ${isUpdating ? 'ring-4 ring-offset-2 scale-[1.02]' : ''}
+        ${isUpdating && isOccupied ? 'ring-sky-300' : ''}
+        ${isUpdating && !isOccupied ? 'ring-emerald-300' : ''}
       `}
     >
+      {/* Update Badge (Temporary) */}
+      {isUpdating && (
+        <span className="absolute top-2 left-1/2 -translate-x-1/2 z-20 text-[9px] font-bold bg-amber-400 text-white px-2 py-0.5 rounded-full shadow-sm animate-pulse">
+            UPDATED
+        </span>
+      )}
+
       {/* Header Status Pill */}
       <div className="flex justify-between items-start p-4 pb-0 relative z-10">
         <span className={`
-          text-xs font-bold px-3 py-1.5 rounded-full tracking-wide flex items-center gap-1 shadow-sm
+          text-xs font-bold px-3 py-1.5 rounded-full tracking-wide flex items-center gap-1 shadow-sm transition-colors duration-300
           ${isOccupied ? 'bg-white text-sky-600 border border-sky-100' : 'bg-white text-emerald-600 border border-emerald-100'}
         `}>
           <div className={`w-2 h-2 rounded-full ${isOccupied ? 'bg-sky-500' : 'bg-emerald-500'}`}></div>
@@ -61,7 +91,7 @@ const BedCard: React.FC<BedCardProps> = ({ bed, onClick, hasAlert, lang }) => {
                    <BedIcon size={40} className="text-sky-400" strokeWidth={1.5} />
                 </div>
                 {/* Patient Overlay */}
-                <div className="absolute -right-2 -top-2 bg-white p-1.5 rounded-full border-2 border-sky-100 shadow-md">
+                <div className="absolute -right-2 -top-2 bg-white p-1.5 rounded-full border-2 border-sky-100 shadow-md animate-fade-in-up">
                    <div className="bg-sky-500 rounded-full p-1">
                       <User size={16} className="text-white" />
                    </div>
@@ -85,12 +115,12 @@ const BedCard: React.FC<BedCardProps> = ({ bed, onClick, hasAlert, lang }) => {
         <div className="mt-4 text-center z-10">
           {isOccupied ? (
             <>
-              <div className="font-mono font-bold text-lg text-slate-700 tracking-tight leading-none">{bed.current_hn}</div>
+              <div className="font-mono font-bold text-lg text-slate-700 tracking-tight leading-none animate-fade-in-up">{bed.current_hn}</div>
               <div className="text-[10px] uppercase font-bold text-sky-400 mt-1 tracking-wider">{t.occupied}</div>
             </>
           ) : (
             <>
-              <div className="font-bold text-sm text-emerald-400/80 tracking-wide mt-1">{t.vacant}</div>
+              <div className="font-bold text-sm text-emerald-400/80 tracking-wide mt-1 animate-fade-in-up">{t.vacant}</div>
             </>
           )}
         </div>
@@ -98,7 +128,7 @@ const BedCard: React.FC<BedCardProps> = ({ bed, onClick, hasAlert, lang }) => {
       </div>
       
       {/* Decorative Bottom Bar */}
-      <div className={`h-1.5 w-full ${isOccupied ? 'bg-sky-400' : 'bg-emerald-400/50'}`}></div>
+      <div className={`h-1.5 w-full transition-colors duration-500 ${isOccupied ? 'bg-sky-400' : 'bg-emerald-400/50'}`}></div>
     </div>
   );
 };
